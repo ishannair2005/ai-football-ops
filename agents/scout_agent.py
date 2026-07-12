@@ -24,7 +24,7 @@ squad or position group implied by the question.
 """.strip()
 
 
-class ScoutAgent(BaseAgent):
+class ScoutAgent(BaseAgent[AgentRequest]):
     def __init__(
         self,
         llm_client: LLMClient,

@@ -70,6 +70,25 @@ if submitted:
             with col2:
                 st.metric("Confidence", f"{result.confidence:.0%}")
 
+            if result.devils_advocate_challenge:
+                st.subheader("Devil's Advocate Challenge")
+                st.warning(result.devils_advocate_challenge.summary)
+                with st.expander(
+                    f"Challenge details (confidence: {result.devils_advocate_challenge.confidence:.0%})"
+                ):
+                    if result.devils_advocate_challenge.assumptions:
+                        st.markdown("**Assumptions questioned**")
+                        for a in result.devils_advocate_challenge.assumptions:
+                            st.write(f"- {a}")
+                    if result.devils_advocate_challenge.uncertainties:
+                        st.markdown("**Hidden risks raised**")
+                        for u in result.devils_advocate_challenge.uncertainties:
+                            st.write(f"- {u}")
+
+            if result.challenge_resolution:
+                st.subheader("How This Was Resolved")
+                st.write(result.challenge_resolution)
+
             if result.key_risks:
                 st.subheader("Key Risks")
                 for risk in result.key_risks:

@@ -26,7 +26,7 @@ in your uncertainties rather than presenting them as current or certain.
 """.strip()
 
 
-class TransferMarketAgent(BaseAgent):
+class TransferMarketAgent(BaseAgent[AgentRequest]):
     def __init__(
         self,
         llm_client: LLMClient,

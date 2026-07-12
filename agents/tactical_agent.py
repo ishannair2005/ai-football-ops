@@ -25,7 +25,7 @@ by the query instead.
 """.strip()
 
 
-class TacticalAgent(BaseAgent):
+class TacticalAgent(BaseAgent[AgentRequest]):
     @property
     def name(self) -> str:
         return "Tactical Agent"

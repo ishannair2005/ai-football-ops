@@ -48,7 +48,7 @@ records instead of LLM recall alone:
 - Streamlit gained an optional "Player name" field — try `Sample Striker`
   against the bundled demo CSV.
 
-## Phase 3 (current)
+## Phase 3
 
 Adds two more specialists, so the General Manager now genuinely
 synthesizes across multiple viewpoints instead of relaying a single one:
@@ -72,13 +72,48 @@ synthesizes across multiple viewpoints instead of relaying a single one:
 - `services/platform_factory.py` now assembles all three specialists
   (Scout, Tactical, Transfer Market) behind the General Manager.
 
-Not yet built (later phases): Devil's Advocate and multi-round
-challenge/response logic between specialists and the Manager (now that
-there's real disagreement surface area to test it against), remaining
-specialist agents (Performance Analytics, Medical, Opponent Analysis,
-Squad Planning, News & Context), Report Agent, scraping/licensed-API data
-adapters beyond the CSV/mock player-stats providers, News API
-integration, Streamlit charts.
+## Phase 4 (current)
+
+Adds a Devil's Advocate agent and a challenge/resolve loop, so the
+General Manager's recommendation goes through one round of adversarial
+scrutiny before it's final — the core "reasoning" requirement from the
+spec (challenge every recommendation, question assumptions, revise
+rather than average):
+
+- `agents/base_agent.py` — `BaseAgent` is now generic over its request
+  type (`BaseAgent[RequestT]`). Most agents still take a plain
+  `AgentRequest`, but the Devil's Advocate needs the Manager's draft
+  recommendation and the specialist findings behind it — genericity lets
+  it reuse `analyze`/`system_prompt` unchanged instead of duplicating
+  that plumbing in a separate class shape.
+- `models/agent_io.py` — new `ChallengeRequest` model (what the Devil's
+  Advocate receives); `ManagerSynthesis` gains `challenge_resolution`
+  (populated only on the post-challenge synthesis); `FinalRecommendation`
+  gains `challenge_resolution` and `devils_advocate_challenge`.
+- `agents/devils_advocate_agent.py` — `DevilsAdvocateAgent`, argues the
+  strongest case against the draft recommendation: hidden risks,
+  questioned assumptions, glossed-over disagreement between specialists.
+  Reuses the existing `AgentResponse` contract — no new response schema.
+- `agents/manager_agent.py` — `GeneralManagerAgent.handle_query` now:
+  consult specialists → draft synthesis → (if a Devil's Advocate is
+  configured) challenge → **final** resolution synthesis that must
+  explicitly accept, partially accept, or reject the challenge and say
+  why, never split the difference. The `devils_advocate` param defaults
+  to `None`, so callers that don't configure one get Phase 1–3 behavior
+  unchanged.
+- `prompts/manager_prompts.py` — new `build_resolution_user_prompt`
+  (shares a `_specialist_findings_json` helper with the existing draft
+  prompt); `build_manager_system_prompt` gained one paragraph on
+  resolving challenges by reasoning, not averaging.
+- `services/platform_factory.py` now always wires a `DevilsAdvocateAgent`
+  into the General Manager.
+- Streamlit shows the Devil's Advocate's challenge and a "How This Was
+  Resolved" section — the platform's concrete risk-analysis view.
+
+Not yet built (later phases): remaining specialist agents (Performance
+Analytics, Medical, Opponent Analysis, Squad Planning, News & Context),
+Report Agent, scraping/licensed-API data adapters beyond the CSV/mock
+player-stats providers, News API integration, Streamlit charts.
 
 ## Setup
 

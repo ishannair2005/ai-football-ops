@@ -40,6 +40,7 @@ class FakeLLMClient(LLMClient):
                 confidence=0.65,
                 key_risks=["Fake risk."],
                 next_steps=["Fake next step."],
+                challenge_resolution="Fake resolution.",
             )
         raise AssertionError(f"FakeLLMClient asked for unsupported model: {response_model}")
 

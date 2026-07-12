@@ -7,6 +7,7 @@ hand, so the roster of specialist agents lives in exactly one place.
 
 from __future__ import annotations
 
+from agents.devils_advocate_agent import DevilsAdvocateAgent
 from agents.manager_agent import GeneralManagerAgent
 from agents.scout_agent import ScoutAgent
 from agents.tactical_agent import TacticalAgent
@@ -46,4 +47,5 @@ def build_general_manager(
         TacticalAgent(client, club_config),
         TransferMarketAgent(client, club_config, data_gateway),
     ]
-    return GeneralManagerAgent(client, club_config, specialists)
+    devils_advocate = DevilsAdvocateAgent(client, club_config)
+    return GeneralManagerAgent(client, club_config, specialists, devils_advocate)

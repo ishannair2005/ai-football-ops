@@ -66,29 +66,58 @@ class ManagerSynthesis(BaseModel):
     """What the LLM produces when the General Manager reconciles specialist
     findings. Deliberately excludes ``agent_responses`` — the manager
     attaches those programmatically rather than asking the LLM to restate
-    them, which would waste tokens and risk transcription drift."""
+    them, which would waste tokens and risk transcription drift.
+
+    Reused for both the draft synthesis (before any Devil's Advocate
+    challenge exists) and the final, post-challenge synthesis — only the
+    latter populates ``challenge_resolution``.
+    """
 
     executive_summary: str
     recommendation: str
     confidence: float = Field(..., ge=0.0, le=1.0)
     key_risks: list[str] = Field(default_factory=list)
     next_steps: list[str] = Field(default_factory=list)
+    challenge_resolution: str | None = Field(
+        default=None,
+        description=(
+            "How the Devil's Advocate's challenge was addressed — accepted, "
+            "partially accepted, or rejected, and why. Populated only on the "
+            "post-challenge synthesis, never the draft."
+        ),
+    )
+
+
+class ChallengeRequest(BaseModel):
+    """What the Devil's Advocate receives: the Manager's draft recommendation
+    and the specialist findings it's built on, instead of a raw query."""
+
+    original_query: str
+    club_id: str
+    draft_recommendation: ManagerSynthesis
+    specialist_responses: list[AgentResponse]
 
 
 class FinalRecommendation(BaseModel):
-    """The General Manager's synthesis of all specialist responses."""
+    """The General Manager's synthesis of all specialist responses, after
+    resolving any Devil's Advocate challenge."""
 
     executive_summary: str
     recommendation: str
     confidence: float = Field(..., ge=0.0, le=1.0)
     key_risks: list[str] = Field(default_factory=list)
     next_steps: list[str] = Field(default_factory=list)
+    challenge_resolution: str | None = None
     agent_responses: list[AgentResponse] = Field(default_factory=list)
+    devils_advocate_challenge: AgentResponse | None = None
     generated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     @classmethod
     def from_synthesis(
-        cls, synthesis: ManagerSynthesis, agent_responses: list[AgentResponse]
+        cls,
+        synthesis: ManagerSynthesis,
+        agent_responses: list[AgentResponse],
+        devils_advocate_challenge: AgentResponse | None = None,
     ) -> "FinalRecommendation":
         return cls(
             executive_summary=synthesis.executive_summary,
@@ -96,5 +125,7 @@ class FinalRecommendation(BaseModel):
             confidence=synthesis.confidence,
             key_risks=synthesis.key_risks,
             next_steps=synthesis.next_steps,
+            challenge_resolution=synthesis.challenge_resolution,
             agent_responses=agent_responses,
+            devils_advocate_challenge=devils_advocate_challenge,
         )
