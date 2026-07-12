@@ -1,0 +1,6 @@
+name,position,club,age,nationality,appearances,goals,assists,as_of_date
+Sample Striker,Forward,Manchester United,23,England,28,14,5,2025-05-25
+Sample Winger,Winger,Manchester United,21,Portugal,31,8,11,2025-05-25
+Sample Midfielder,Central Midfielder,Manchester United,26,Netherlands,33,4,7,2025-05-25
+Sample Centre-Back,Centre-Back,Arsenal,25,France,29,2,1,2025-05-25
+Sample Full-Back,Full-Back,Arsenal,22,Spain,27,1,6,2025-05-25

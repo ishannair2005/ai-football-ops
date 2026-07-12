@@ -36,6 +36,14 @@ query = st.text_area(
     height=100,
 )
 
+player_name = st.text_input(
+    "Player name (optional)",
+    placeholder="e.g. Sample Striker",
+    help="If the question is about a specific player, name them here so the "
+    "Scout Agent can look up data-provider records instead of relying on "
+    "general knowledge alone. Try 'Sample Striker' against the bundled demo data.",
+)
+
 submitted = st.button("Get Recommendation", type="primary")
 
 if submitted:
@@ -43,10 +51,11 @@ if submitted:
         st.warning("Enter a question first.")
     else:
         try:
+            context = {"player": player_name.strip()} if player_name.strip() else {}
             with st.spinner("Consulting specialist agents..."):
                 manager = build_general_manager(settings.active_club)
                 result: FinalRecommendation = manager.handle_query(
-                    AgentRequest(query=query, club_id=settings.active_club)
+                    AgentRequest(query=query, club_id=settings.active_club, context=context)
                 )
         except LLMClientError as exc:
             st.error(str(exc))
