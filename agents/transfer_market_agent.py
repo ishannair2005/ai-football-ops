@@ -1,0 +1,74 @@
+"""Transfer Market Agent: evaluates fee, wages, resale value, and financial fit."""
+
+from __future__ import annotations
+
+from agents.base_agent import BaseAgent
+from config.club_config import ClubConfig
+from models.agent_io import AgentRequest
+from prompts.data_prompts import build_player_data_section
+from services.llm_client import LLMClient
+from tools.data_gateway import PlayerDataGateway
+
+ROLE_DESCRIPTION = """
+You are the club's transfer market analyst. For any player under
+discussion, evaluate:
+- Estimated transfer fee (and how confident that estimate is)
+- Wage expectations relative to the club's likely pay structure
+- Resale value / age curve (how their market value is likely to trend)
+- Contract situation (time remaining, leverage this creates for either side)
+- Financial efficiency (value delivered per pound of fee + wages, relative
+  to alternatives at the same position)
+
+You do not have access to a live transfer-market data feed (no fee, wage,
+or contract-length figures are fetched for you). Treat any such figures as
+general knowledge, mark them with reduced confidence, and say so explicitly
+in your uncertainties rather than presenting them as current or certain.
+""".strip()
+
+
+class TransferMarketAgent(BaseAgent):
+    def __init__(
+        self,
+        llm_client: LLMClient,
+        club_config: ClubConfig,
+        data_gateway: PlayerDataGateway | None = None,
+    ) -> None:
+        super().__init__(llm_client, club_config)
+        self._data_gateway = data_gateway
+
+    @property
+    def name(self) -> str:
+        return "Transfer Market Agent"
+
+    @property
+    def role_description(self) -> str:
+        return ROLE_DESCRIPTION
+
+    def build_user_prompt(self, request: AgentRequest) -> str:
+        context_lines = "\n".join(f"- {k}: {v}" for k, v in request.context.items()) or "(none provided)"
+        return f"""
+Transfer market task: {request.query}
+
+Additional context:
+{context_lines}
+
+{self._club_budget_section()}
+
+{build_player_data_section(self._data_gateway, request.context)}
+
+Provide your transfer market assessment via the structured response tool.
+""".strip()
+
+    def _club_budget_section(self) -> str:
+        budget = self._club_config.transfer_budget_gbp
+        wages = self._club_config.wage_budget_gbp_per_week
+        if budget is None and wages is None:
+            return (
+                "Club budget: no transfer or wage budget figures are configured for "
+                f"{self._club_config.name}. Do not assume a specific budget — note this "
+                "gap explicitly rather than inventing a figure."
+            )
+        return (
+            f"Club budget: transfer budget £{budget or 'unset'}, "
+            f"wage budget £{wages or 'unset'} per week."
+        )

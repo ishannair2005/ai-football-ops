@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from agents.manager_agent import GeneralManagerAgent
 from agents.scout_agent import ScoutAgent
+from agents.tactical_agent import TacticalAgent
+from agents.transfer_market_agent import TransferMarketAgent
 from config.club_config import ClubConfig, load_club_config
 from config.settings import DATA_DIR, get_settings
 from services.llm_client import AnthropicLLMClient, LLMClient
@@ -38,9 +40,10 @@ def build_general_manager(
     client = llm_client or AnthropicLLMClient(settings)
     data_gateway = _build_player_data_gateway()
 
-    # Phase 1 roster: Scout Agent only. Additional specialists register
-    # here as they're built in later phases.
+    # Additional specialists register here as they're built in later phases.
     specialists = [
         ScoutAgent(client, club_config, data_gateway),
+        TacticalAgent(client, club_config),
+        TransferMarketAgent(client, club_config, data_gateway),
     ]
     return GeneralManagerAgent(client, club_config, specialists)
