@@ -10,12 +10,25 @@ data freshness) is rendered explicitly below.
 
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import streamlit as st
+
+# On Streamlit Cloud, secrets live in st.secrets and aren't guaranteed to be
+# mirrored into the process environment. config.settings reads its values
+# via pydantic-settings, which only looks at os.environ/.env — so copy any
+# configured secrets across before anything imports/calls get_settings().
+# Locally (no secrets.toml configured, using .env instead) st.secrets is
+# simply empty and this is a no-op.
+try:
+    for _key, _value in st.secrets.items():
+        os.environ.setdefault(_key, str(_value))
+except Exception:
+    pass
 
 from config.settings import get_settings
 from models.agent_io import AgentRequest, PlatformResult, RecommendationVerdict
