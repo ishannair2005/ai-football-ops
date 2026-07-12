@@ -5,7 +5,11 @@ from __future__ import annotations
 import json
 
 from agents.base_agent import BaseAgent
-from models.agent_io import ChallengeRequest
+from config.club_config import ClubConfig
+from models.agent_io import AgentResponse, ChallengeRequest
+from prompts.data_prompts import build_news_section
+from services.llm_client import LLMClient
+from tools.news_gateway import NewsGateway
 
 ROLE_DESCRIPTION = """
 You are the club's Devil's Advocate. You are given the General Manager's
@@ -16,6 +20,9 @@ recommendation:
 - Question the assumptions the specialists (and the draft) relied on
 - Point out any conflicting evidence between specialists that was
   glossed over rather than resolved
+- Weigh in any recent news below — a rumour of interest from elsewhere, a
+  lukewarm manager comment, or a contract dispute is exactly the kind of
+  thing a draft recommendation might have missed
 - Produce the single strongest opposing argument, not a scattershot list
   of minor nitpicks
 
@@ -27,7 +34,16 @@ rather than manufacturing a weak objection to seem useful.
 """.strip()
 
 
-class DevilsAdvocateAgent(BaseAgent[ChallengeRequest]):
+class DevilsAdvocateAgent(BaseAgent[ChallengeRequest, AgentResponse]):
+    def __init__(
+        self,
+        llm_client: LLMClient,
+        club_config: ClubConfig,
+        news_gateway: NewsGateway | None = None,
+    ) -> None:
+        super().__init__(llm_client, club_config)
+        self._news_gateway = news_gateway
+
     @property
     def name(self) -> str:
         return "Devil's Advocate"
@@ -35,6 +51,10 @@ class DevilsAdvocateAgent(BaseAgent[ChallengeRequest]):
     @property
     def role_description(self) -> str:
         return ROLE_DESCRIPTION
+
+    @property
+    def response_model(self) -> type[AgentResponse]:
+        return AgentResponse
 
     def build_user_prompt(self, request: ChallengeRequest) -> str:
         specialist_findings = [
@@ -47,6 +67,7 @@ class DevilsAdvocateAgent(BaseAgent[ChallengeRequest]):
             }
             for r in request.specialist_responses
         ]
+        subject = request.player or request.club_id
         return f"""
 Original question: {request.original_query}
 
@@ -56,9 +77,12 @@ Draft recommendation from the General Manager (JSON):
 Specialist findings underpinning that draft (JSON):
 {json.dumps(specialist_findings, indent=2)}
 
+{build_news_section(self._news_gateway, subject)}
+
 Challenge this draft via the structured response tool: identify hidden
 risks, question assumptions, surface any conflicting specialist evidence
-that was glossed over, and produce the single strongest opposing
-argument. If you genuinely cannot find a strong opposing argument, say so
-and rate your challenge's confidence low rather than manufacturing one.
+that was glossed over, weigh in any relevant news above, and produce the
+single strongest opposing argument. If you genuinely cannot find a strong
+opposing argument, say so and rate your challenge's confidence low rather
+than manufacturing one.
 """.strip()

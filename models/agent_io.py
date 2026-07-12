@@ -15,6 +15,14 @@ from enum import StrEnum
 from pydantic import BaseModel, Field
 
 
+class RecommendationVerdict(StrEnum):
+    """The club's categorical decision on a transfer question."""
+
+    BUY = "Buy"
+    MONITOR = "Monitor"
+    DO_NOT_SIGN = "Do Not Sign"
+
+
 class EvidenceSource(StrEnum):
     """Where a piece of evidence originated.
 
@@ -75,6 +83,9 @@ class ManagerSynthesis(BaseModel):
 
     executive_summary: str
     recommendation: str
+    verdict: RecommendationVerdict = Field(
+        ..., description="The categorical decision: Buy, Monitor, or Do Not Sign."
+    )
     confidence: float = Field(..., ge=0.0, le=1.0)
     key_risks: list[str] = Field(default_factory=list)
     next_steps: list[str] = Field(default_factory=list)
@@ -96,6 +107,11 @@ class ChallengeRequest(BaseModel):
     club_id: str
     draft_recommendation: ManagerSynthesis
     specialist_responses: list[AgentResponse]
+    player: str | None = Field(
+        default=None,
+        description="The player named in the original request's context, if any — "
+        "used to look up recent news. Falls back to club-level news when unset.",
+    )
 
 
 class FinalRecommendation(BaseModel):
@@ -104,6 +120,7 @@ class FinalRecommendation(BaseModel):
 
     executive_summary: str
     recommendation: str
+    verdict: RecommendationVerdict
     confidence: float = Field(..., ge=0.0, le=1.0)
     key_risks: list[str] = Field(default_factory=list)
     next_steps: list[str] = Field(default_factory=list)
@@ -122,6 +139,7 @@ class FinalRecommendation(BaseModel):
         return cls(
             executive_summary=synthesis.executive_summary,
             recommendation=synthesis.recommendation,
+            verdict=synthesis.verdict,
             confidence=synthesis.confidence,
             key_risks=synthesis.key_risks,
             next_steps=synthesis.next_steps,
@@ -129,3 +147,38 @@ class FinalRecommendation(BaseModel):
             agent_responses=agent_responses,
             devils_advocate_challenge=devils_advocate_challenge,
         )
+
+
+class ReportRequest(BaseModel):
+    """What the Report Agent receives: the original question and the
+    Manager's fully resolved recommendation."""
+
+    original_query: str
+    club_id: str
+    recommendation: FinalRecommendation
+
+
+class ScoutingReport(BaseModel):
+    """The Report Agent's output: a polished, presentable write-up of the
+    Manager's recommendation. ``verdict``, ``confidence``, ``sources_used``,
+    and ``data_as_of`` are overwritten programmatically after generation from
+    ``ReportRequest.recommendation`` — the Report Agent writes the prose, it
+    doesn't get to redecide or restate the facts underneath it."""
+
+    executive_summary: str
+    verdict: RecommendationVerdict
+    confidence: float = Field(..., ge=0.0, le=1.0)
+    narrative: str = Field(
+        ..., description="The full, flowing report covering every section by name."
+    )
+    sources_used: list[str] = Field(default_factory=list)
+    data_as_of: str | None = None
+    generated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class PlatformResult(BaseModel):
+    """What a full end-to-end query returns: the Manager's structured
+    recommendation and the Report Agent's polished write-up of it."""
+
+    recommendation: FinalRecommendation
+    report: ScoutingReport

@@ -3,7 +3,14 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from models.agent_io import AgentResponse, Evidence, EvidenceSource, ManagerSynthesis, FinalRecommendation
+from models.agent_io import (
+    AgentResponse,
+    Evidence,
+    EvidenceSource,
+    FinalRecommendation,
+    ManagerSynthesis,
+    RecommendationVerdict,
+)
 
 
 def test_agent_response_confidence_must_be_in_range():
@@ -30,6 +37,7 @@ def test_final_recommendation_from_synthesis_attaches_agent_responses():
     synthesis = ManagerSynthesis(
         executive_summary="Summary.",
         recommendation="Sign him.",
+        verdict=RecommendationVerdict.BUY,
         confidence=0.8,
     )
     responses = [AgentResponse(agent_name="Scout Agent", summary="Good technical profile.", confidence=0.7)]

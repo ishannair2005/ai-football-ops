@@ -19,8 +19,8 @@ def test_tactical_agent_system_prompt_includes_club_formation_and_manager(fake_l
 
     prompt = agent.system_prompt()
 
-    assert "Ruben Amorim" in prompt
-    assert "3-4-3" in prompt
+    assert "Michael Carrick" in prompt
+    assert "4-2-3-1" in prompt
     assert "tactical analyst" in prompt.lower()
 
 

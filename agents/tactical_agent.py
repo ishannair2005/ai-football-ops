@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from agents.base_agent import BaseAgent
-from models.agent_io import AgentRequest
+from models.agent_io import AgentRequest, AgentResponse
 
 ROLE_DESCRIPTION = """
 You are the club's tactical analyst. For any player, position group, or
@@ -25,7 +25,7 @@ by the query instead.
 """.strip()
 
 
-class TacticalAgent(BaseAgent[AgentRequest]):
+class TacticalAgent(BaseAgent[AgentRequest, AgentResponse]):
     @property
     def name(self) -> str:
         return "Tactical Agent"
@@ -33,6 +33,10 @@ class TacticalAgent(BaseAgent[AgentRequest]):
     @property
     def role_description(self) -> str:
         return ROLE_DESCRIPTION
+
+    @property
+    def response_model(self) -> type[AgentResponse]:
+        return AgentResponse
 
     def build_user_prompt(self, request: AgentRequest) -> str:
         context_lines = "\n".join(f"- {k}: {v}" for k, v in request.context.items()) or "(none provided)"

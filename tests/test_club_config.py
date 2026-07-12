@@ -8,7 +8,7 @@ from config.club_config import ClubConfigError, load_club_config
 def test_loads_manchester_united():
     club = load_club_config("manchester_united")
     assert club.name == "Manchester United"
-    assert club.manager == "Ruben Amorim"
+    assert club.manager == "Michael Carrick"
 
 
 def test_loads_second_club_without_code_changes():

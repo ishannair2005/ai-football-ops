@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from agents.base_agent import BaseAgent
 from config.club_config import ClubConfig
-from models.agent_io import AgentRequest
+from models.agent_io import AgentRequest, AgentResponse
 from prompts.data_prompts import build_player_data_section
 from services.llm_client import LLMClient
 from tools.data_gateway import PlayerDataGateway
@@ -26,7 +26,7 @@ in your uncertainties rather than presenting them as current or certain.
 """.strip()
 
 
-class TransferMarketAgent(BaseAgent[AgentRequest]):
+class TransferMarketAgent(BaseAgent[AgentRequest, AgentResponse]):
     def __init__(
         self,
         llm_client: LLMClient,
@@ -43,6 +43,10 @@ class TransferMarketAgent(BaseAgent[AgentRequest]):
     @property
     def role_description(self) -> str:
         return ROLE_DESCRIPTION
+
+    @property
+    def response_model(self) -> type[AgentResponse]:
+        return AgentResponse
 
     def build_user_prompt(self, request: AgentRequest) -> str:
         context_lines = "\n".join(f"- {k}: {v}" for k, v in request.context.items()) or "(none provided)"

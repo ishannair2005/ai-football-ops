@@ -3,7 +3,7 @@ from __future__ import annotations
 from agents.devils_advocate_agent import DevilsAdvocateAgent
 from agents.manager_agent import GeneralManagerAgent
 from agents.scout_agent import ScoutAgent
-from models.agent_io import AgentRequest, AgentResponse, ManagerSynthesis
+from models.agent_io import AgentRequest, AgentResponse, ManagerSynthesis, RecommendationVerdict
 from services.llm_client import LLMClient
 
 
@@ -70,6 +70,7 @@ def test_manager_uses_resolution_synthesis_not_draft(man_utd_config):
     draft = ManagerSynthesis(
         executive_summary="Draft summary.",
         recommendation="Draft recommendation.",
+        verdict=RecommendationVerdict.BUY,
         confidence=0.7,
         key_risks=["Draft risk."],
         next_steps=["Draft step."],
@@ -80,6 +81,7 @@ def test_manager_uses_resolution_synthesis_not_draft(man_utd_config):
     final_synthesis = ManagerSynthesis(
         executive_summary="Final summary.",
         recommendation="Final recommendation, revised.",
+        verdict=RecommendationVerdict.MONITOR,
         confidence=0.55,
         key_risks=["Final risk."],
         next_steps=["Final step."],
@@ -95,6 +97,8 @@ def test_manager_uses_resolution_synthesis_not_draft(man_utd_config):
 
     assert result.recommendation == "Final recommendation, revised."
     assert result.recommendation != draft.recommendation
+    assert result.verdict == RecommendationVerdict.MONITOR
+    assert result.verdict != draft.verdict
     assert result.challenge_resolution == (
         "Partially accepted the challenge; lowered confidence and added a risk."
     )

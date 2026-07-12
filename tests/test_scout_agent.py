@@ -23,7 +23,7 @@ def test_scout_agent_system_prompt_includes_club_context(fake_llm_client, man_ut
     prompt = agent.system_prompt()
 
     assert "Manchester United" in prompt
-    assert "Ruben Amorim" in prompt
+    assert "Michael Carrick" in prompt
     assert "chief scout" in prompt.lower()
 
 
@@ -74,3 +74,31 @@ def test_scout_agent_prompt_includes_fetched_evidence_when_available(fake_llm_cl
     assert "Fetched data (ground your assessment in this" in prompt
     assert "Sample Striker" in prompt
     assert "2025-05-25" in prompt
+
+
+def test_scout_agent_prompt_includes_injury_evidence_when_available(fake_llm_client, man_utd_config):
+    from models.domain import InjuryRecord
+    from tools.injury_gateway import InjuryGateway
+    from tools.mock_injury_provider import MockInjuryProvider
+
+    record = InjuryRecord(
+        player="Sample Winger",
+        status="Doubtful",
+        injury_type="Hamstring strain",
+        expected_return="2025-06-10",
+        as_of_date="2025-05-25",
+        source="sample_injuries.csv",
+    )
+    injury_gateway = InjuryGateway(providers=[MockInjuryProvider(records={"sample winger": record})])
+    agent = ScoutAgent(fake_llm_client, man_utd_config, injury_gateway=injury_gateway)
+    request = AgentRequest(
+        query="Should we sign Sample Winger?",
+        club_id="manchester_united",
+        context={"player": "Sample Winger"},
+    )
+
+    prompt = agent.build_user_prompt(request)
+
+    assert "Injury data (cite this" in prompt
+    assert "Doubtful" in prompt
+    assert "Hamstring strain" in prompt

@@ -3,7 +3,12 @@ from __future__ import annotations
 import pytest
 
 from config.club_config import ClubConfig
-from models.agent_io import AgentResponse, ManagerSynthesis
+from models.agent_io import (
+    AgentResponse,
+    ManagerSynthesis,
+    RecommendationVerdict,
+    ScoutingReport,
+)
 from services.llm_client import LLMClient
 
 
@@ -37,10 +42,18 @@ class FakeLLMClient(LLMClient):
             return ManagerSynthesis(
                 executive_summary="Fake executive summary.",
                 recommendation="Fake recommendation.",
+                verdict=RecommendationVerdict.MONITOR,
                 confidence=0.65,
                 key_risks=["Fake risk."],
                 next_steps=["Fake next step."],
                 challenge_resolution="Fake resolution.",
+            )
+        if response_model is ScoutingReport:
+            return ScoutingReport(
+                executive_summary="Fake report executive summary.",
+                verdict=RecommendationVerdict.MONITOR,
+                confidence=0.5,
+                narrative="Fake full narrative report.",
             )
         raise AssertionError(f"FakeLLMClient asked for unsupported model: {response_model}")
 

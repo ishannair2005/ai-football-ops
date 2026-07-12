@@ -72,7 +72,7 @@ synthesizes across multiple viewpoints instead of relaying a single one:
 - `services/platform_factory.py` now assembles all three specialists
   (Scout, Tactical, Transfer Market) behind the General Manager.
 
-## Phase 4 (current)
+## Phase 4
 
 Adds a Devil's Advocate agent and a challenge/resolve loop, so the
 General Manager's recommendation goes through one round of adversarial
@@ -110,10 +110,68 @@ rather than average):
 - Streamlit shows the Devil's Advocate's challenge and a "How This Was
   Resolved" section — the platform's concrete risk-analysis view.
 
-Not yet built (later phases): remaining specialist agents (Performance
-Analytics, Medical, Opponent Analysis, Squad Planning, News & Context),
-Report Agent, scraping/licensed-API data adapters beyond the CSV/mock
-player-stats providers, News API integration, Streamlit charts.
+## Phase 5 (current)
+
+The first complete, production-quality vertical slice: a fourth
+specialist, a real injury/news data layer, a categorical verdict, a
+Report Agent, and a Streamlit UI that renders every required section end
+to end for a query like "Should Manchester United sign Sample Striker?"
+
+- `models/agent_io.py` — new `RecommendationVerdict` enum (`Buy` /
+  `Monitor` / `Do Not Sign`), **required** on both `ManagerSynthesis` and
+  `FinalRecommendation` so the schema forces the Manager to decide it
+  every time. New `ReportRequest`, `ScoutingReport`, and `PlatformResult`
+  models for the Report Agent and the platform facade.
+- `models/domain.py` — new `InjuryRecord` and `NewsItem`.
+- `tools/injury_provider.py` / `csv_injury_provider.py` /
+  `mock_injury_provider.py` / `injury_gateway.py` and
+  `tools/news_provider.py` / `csv_news_provider.py` /
+  `mock_news_provider.py` / `news_gateway.py` — mirror the Phase 2
+  `PlayerDataProvider` pattern exactly for two new domains. Deliberate
+  scope cut: neither gateway does cross-source disagreement detection
+  (`PlayerDataGateway` already proves that pattern once). `InjuryGateway`
+  wires into `ScoutAgent` (physical traits are already its remit);
+  `NewsGateway` wires into `DevilsAdvocateAgent` (recent rumours/manager
+  comments are exactly its kind of ammunition) via a new `player` field on
+  `ChallengeRequest`, falling back to the club for player-less queries.
+  `data/injuries/sample_injuries.csv` and `data/news/sample_news.csv` are
+  illustrative fixtures, same convention as the Phase 2 CSV.
+- `agents/performance_analytics_agent.py` — `PerformanceAnalyticsAgent`,
+  the fourth specialist. Covers xG/xA/NPxG/SCA/GCA/progressive
+  actions/pressures/expected threat; grounds what it can (season
+  appearances/goals/assists) via the existing `PlayerDataGateway`, and is
+  explicit that advanced tracking metrics aren't available from a live
+  provider — the same honest-degradation pattern as Transfer Market
+  Agent's budget handling.
+- `agents/base_agent.py` — `BaseAgent` is now generic over **both** its
+  request and response type (`BaseAgent[RequestT, ResponseT]`), via a new
+  abstract `response_model` property. This is what lets the Report Agent
+  (which returns a `ScoutingReport`, not an `AgentResponse`) reuse
+  `analyze`/`system_prompt` unchanged rather than duplicating that
+  plumbing a second time.
+- `agents/report_agent.py` — `ReportAgent`, writes the polished narrative
+  report. It doesn't get to redecide anything: `analyze()` calls the LLM
+  for prose (`executive_summary`, `narrative`) and then **overwrites**
+  `verdict`, `confidence`, `sources_used`, and `data_as_of` programmatically
+  from the actual `FinalRecommendation` evidence — the same
+  attach-don't-trust-restatement principle already used for
+  `FinalRecommendation.agent_responses`. `sources_used` is deduped across
+  every specialist's and the Devil's Advocate's evidence; `data_as_of` is
+  the earliest (most conservative) date among it.
+- `services/platform_factory.py` — new `FootballOperationsPlatform`
+  facade and `build_platform(...)`, running the Manager then the Report
+  Agent and returning both (`PlatformResult`). `build_general_manager` is
+  unchanged for existing callers/tests.
+- Streamlit renders, in order: Executive Summary, Overall Recommendation
+  (Buy/Monitor/Do Not Sign badge), Confidence, four labeled specialist
+  reports (Scout Report / Performance Analytics / Tactical Fit / Transfer
+  Cost Analysis), the Devil's Advocate Challenge, the Manager's Final
+  Decision, Sources Used, Data Freshness, and the full narrative.
+
+Not yet built (later phases): remaining specialist agents (Medical,
+Opponent Analysis, Squad Planning, News & Context as a dedicated agent),
+scraping/licensed-API data adapters beyond the bundled CSV/mock
+providers, a real news API integration, Streamlit charts.
 
 ## Setup
 

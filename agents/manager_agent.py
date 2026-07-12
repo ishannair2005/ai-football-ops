@@ -83,6 +83,7 @@ class GeneralManagerAgent:
             club_id=request.club_id,
             draft_recommendation=draft,
             specialist_responses=specialist_responses,
+            player=request.context.get("player"),
         )
         return self._devils_advocate.analyze(challenge_request)
 

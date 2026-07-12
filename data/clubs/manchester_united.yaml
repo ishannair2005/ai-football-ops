@@ -4,6 +4,13 @@
 # NOT a source of live statistics, transfer values, or news — those must
 # always come from data-provider adapters (added in a later phase) or be
 # clearly flagged by agents as general knowledge that may be outdated.
+#
+# CAVEAT: manager/formation are NOT actually static (unlike name/stadium/
+# founded) but are modeled the same way here, with no as_of_date or
+# staleness mechanism. Confirmed current as of 2026-07-12 via web search
+# (Carrick appointed permanent head coach May 2026, running a 4-2-3-1
+# after Amorim's back three) — but revisit this file whenever the club's
+# management changes rather than assuming it's still accurate.
 club_id: manchester_united
 name: Manchester United
 short_name: Man Utd
@@ -11,8 +18,8 @@ league: Premier League
 country: England
 stadium: Old Trafford
 founded: 1878
-manager: Ruben Amorim
-formation: "3-4-3"
+manager: Michael Carrick
+formation: "4-2-3-1"
 rival_clubs:
   - Manchester City
   - Liverpool

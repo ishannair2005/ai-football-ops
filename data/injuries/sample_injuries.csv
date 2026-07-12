@@ -1,0 +1,6 @@
+player,status,injury_type,expected_return,as_of_date
+Sample Striker,Available,,,2025-05-25
+Sample Winger,Doubtful,Hamstring strain,2025-06-10,2025-05-25
+Sample Midfielder,Injured,ACL rupture,2025-11-01,2025-05-25
+Sample Centre-Back,Available,,,2025-05-25
+Sample Full-Back,Available,,,2025-05-25
