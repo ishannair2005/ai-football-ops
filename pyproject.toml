@@ -1,0 +1,29 @@
+[project]
+name = "ai-football-ops"
+version = "0.1.0"
+description = "Multi-agent AI platform simulating a professional football club's operations department."
+requires-python = ">=3.12"
+dependencies = [
+    "pydantic>=2.7",
+    "pydantic-settings>=2.3",
+    "anthropic>=0.34",
+    "python-dotenv>=1.0",
+    "pyyaml>=6.0",
+    "streamlit>=1.36",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.2",
+    "pytest-mock>=3.14",
+]
+
+[tool.setuptools.packages.find]
+include = ["agents*", "tools*", "models*", "prompts*", "services*", "config*"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.pytest.ini_options]
+pythonpath = ["."]

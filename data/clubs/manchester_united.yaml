@@ -1,0 +1,26 @@
+# Baseline club configuration for Manchester United.
+#
+# This is static system configuration (identity, stadium, competition),
+# NOT a source of live statistics, transfer values, or news — those must
+# always come from data-provider adapters (added in a later phase) or be
+# clearly flagged by agents as general knowledge that may be outdated.
+club_id: manchester_united
+name: Manchester United
+short_name: Man Utd
+league: Premier League
+country: England
+stadium: Old Trafford
+founded: 1878
+manager: Ruben Amorim
+formation: "3-4-3"
+rival_clubs:
+  - Manchester City
+  - Liverpool
+  - Leeds United
+transfer_budget_gbp: null
+wage_budget_gbp_per_week: null
+homegrown_quota: 8
+notes: >
+  Budget and quota figures are left null in this baseline config since
+  they change frequently; supply current figures via a data-provider
+  adapter or override before relying on them for transfer analysis.

@@ -1,0 +1,22 @@
+# Second club config included to demonstrate that switching clubs is a
+# pure configuration change — no source code differs between clubs.
+club_id: arsenal
+name: Arsenal
+short_name: Arsenal
+league: Premier League
+country: England
+stadium: Emirates Stadium
+founded: 1886
+manager: Mikel Arteta
+formation: "4-3-3"
+rival_clubs:
+  - Tottenham Hotspur
+  - Manchester United
+  - Chelsea
+transfer_budget_gbp: null
+wage_budget_gbp_per_week: null
+homegrown_quota: 8
+notes: >
+  Budget and quota figures are left null in this baseline config since
+  they change frequently; supply current figures via a data-provider
+  adapter or override before relying on them for transfer analysis.
