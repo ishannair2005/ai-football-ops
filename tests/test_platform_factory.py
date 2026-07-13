@@ -46,6 +46,35 @@ def test_build_general_manager_uses_csv_backed_data_for_bundled_sample_player(fa
     assert "Injury data" in scout_call["user_prompt"]
 
 
+def test_build_general_manager_resolves_bundled_player_identity(fake_llm_client):
+    manager = build_general_manager("manchester_united", llm_client=fake_llm_client)
+    request = AgentRequest(
+        query="Should we sign Sample Striker?",
+        club_id="manchester_united",
+        context={"player": "Sample Striker"},
+    )
+
+    profile = manager._resolve_player_profile(request)
+
+    assert profile.resolved is True
+    assert profile.full_name == "Sample Striker"
+    assert profile.club == "Manchester United"
+
+
+def test_build_general_manager_reports_gap_for_unresolvable_player(fake_llm_client):
+    manager = build_general_manager("manchester_united", llm_client=fake_llm_client)
+    request = AgentRequest(
+        query="Should we sign Nobody FC?",
+        club_id="manchester_united",
+        context={"player": "Nobody FC"},
+    )
+
+    profile = manager._resolve_player_profile(request)
+
+    assert profile.resolved is False
+    assert any("could not be verified" in gap for gap in profile.evidence_gaps)
+
+
 def test_build_platform_returns_recommendation_and_report(fake_llm_client):
     platform = build_platform("manchester_united", llm_client=fake_llm_client)
     request = AgentRequest(
@@ -76,4 +105,34 @@ def test_build_platform_report_collects_sources_and_freshness(fake_llm_client):
     # report's programmatic aggregation should honestly report nothing found
     # rather than fabricating a source or date.
     assert result.report.sources_used == []
-    assert result.report.data_as_of is None
+    assert result.report.data_freshness == {}
+
+
+def test_build_platform_forwards_callbacks_and_adds_report_status(fake_llm_client):
+    platform = build_platform("manchester_united", llm_client=fake_llm_client)
+    request = AgentRequest(
+        query="Should we sign Sample Striker?",
+        club_id="manchester_united",
+        context={"player": "Sample Striker"},
+    )
+
+    statuses: list[str] = []
+    agent_names: list[str] = []
+
+    platform.handle_query(
+        request,
+        on_status=statuses.append,
+        on_agent_response=lambda response: agent_names.append(response.agent_name),
+    )
+
+    # The Manager's own statuses/agent-responses (4 specialists + draft +
+    # challenge + resolution) plus one more status for the report step.
+    assert statuses[-1] == "Writing the final report..."
+    assert statuses.count("Writing the final report...") == 1
+    assert agent_names == [
+        "Scout Agent",
+        "Tactical Agent",
+        "Transfer Market Agent",
+        "Performance Analytics Agent",
+        "Devil's Advocate",
+    ]

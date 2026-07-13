@@ -3,11 +3,8 @@
 from __future__ import annotations
 
 from agents.base_agent import BaseAgent
-from config.club_config import ClubConfig
 from models.agent_io import AgentRequest, AgentResponse
-from prompts.data_prompts import build_player_data_section
-from services.llm_client import LLMClient
-from tools.data_gateway import PlayerDataGateway
+from prompts.data_prompts import build_identity_section, build_player_data_section
 
 ROLE_DESCRIPTION = """
 You are the club's transfer market analyst. For any player under
@@ -21,21 +18,13 @@ discussion, evaluate:
 
 You do not have access to a live transfer-market data feed (no fee, wage,
 or contract-length figures are fetched for you). Treat any such figures as
-general knowledge, mark them with reduced confidence, and say so explicitly
-in your uncertainties rather than presenting them as current or certain.
+general knowledge, mark them with reduced confidence, and state this
+explicitly as an evidence gap rather than presenting them as current or
+certain.
 """.strip()
 
 
 class TransferMarketAgent(BaseAgent[AgentRequest, AgentResponse]):
-    def __init__(
-        self,
-        llm_client: LLMClient,
-        club_config: ClubConfig,
-        data_gateway: PlayerDataGateway | None = None,
-    ) -> None:
-        super().__init__(llm_client, club_config)
-        self._data_gateway = data_gateway
-
     @property
     def name(self) -> str:
         return "Transfer Market Agent"
@@ -50,6 +39,7 @@ class TransferMarketAgent(BaseAgent[AgentRequest, AgentResponse]):
 
     def build_user_prompt(self, request: AgentRequest) -> str:
         context_lines = "\n".join(f"- {k}: {v}" for k, v in request.context.items()) or "(none provided)"
+        profile = request.player_profile
         return f"""
 Transfer market task: {request.query}
 
@@ -58,7 +48,9 @@ Additional context:
 
 {self._club_budget_section()}
 
-{build_player_data_section(self._data_gateway, request.context)}
+{build_identity_section(profile)}
+
+{build_player_data_section(profile)}
 
 Provide your transfer market assessment via the structured response tool.
 """.strip()
@@ -69,8 +61,8 @@ Provide your transfer market assessment via the structured response tool.
         if budget is None and wages is None:
             return (
                 "Club budget: no transfer or wage budget figures are configured for "
-                f"{self._club_config.name}. Do not assume a specific budget — note this "
-                "gap explicitly rather than inventing a figure."
+                f"{self._club_config.name}. Do not assume a specific budget — state this "
+                "as an evidence gap rather than inventing a figure."
             )
         return (
             f"Club budget: transfer budget £{budget or 'unset'}, "

@@ -1,10 +1,8 @@
 from __future__ import annotations
 
 from agents.scout_agent import ScoutAgent
-from models.agent_io import AgentRequest
-from models.domain import PlayerStatsRecord
-from tools.data_gateway import PlayerDataGateway
-from tools.mock_provider import MockPlayerDataProvider
+from models.agent_io import AgentRequest, Evidence, EvidenceSource
+from tests.conftest import make_player_profile
 
 
 def test_scout_agent_returns_named_response(fake_llm_client, man_utd_config):
@@ -27,75 +25,73 @@ def test_scout_agent_system_prompt_includes_club_context(fake_llm_client, man_ut
     assert "chief scout" in prompt.lower()
 
 
-def test_scout_agent_prompt_has_no_fetched_data_without_player_context(fake_llm_client, man_utd_config):
+def test_scout_agent_prompt_has_no_fetched_data_without_player_profile(fake_llm_client, man_utd_config):
     agent = ScoutAgent(fake_llm_client, man_utd_config)
     request = AgentRequest(query="Which positions should we strengthen?", club_id="manchester_united")
 
     prompt = agent.build_user_prompt(request)
 
-    assert "Fetched data: none available" in prompt
+    assert "no player named" in prompt.lower()
+    assert "none available" in prompt.lower()
 
 
-def test_scout_agent_prompt_flags_missing_record_for_named_player(fake_llm_client, man_utd_config):
-    gateway = PlayerDataGateway(providers=[MockPlayerDataProvider(records={})])
-    agent = ScoutAgent(fake_llm_client, man_utd_config, gateway)
+def test_scout_agent_prompt_flags_gap_for_unresolved_player(fake_llm_client, man_utd_config):
+    agent = ScoutAgent(fake_llm_client, man_utd_config)
+    profile = make_player_profile(queried_name="Nobody FC", resolved=False, full_name=None, club=None)
     request = AgentRequest(
         query="Should we sign him?",
         club_id="manchester_united",
         context={"player": "Nobody FC"},
+        player_profile=profile,
     )
 
     prompt = agent.build_user_prompt(request)
 
-    assert "no data-provider record found" in prompt
+    assert "could not be verified" in prompt
 
 
 def test_scout_agent_prompt_includes_fetched_evidence_when_available(fake_llm_client, man_utd_config):
-    record = PlayerStatsRecord(
-        name="Sample Striker",
-        position="Forward",
-        club="Manchester United",
-        age=23,
-        as_of_date="2025-05-25",
-        source="sample_players.csv",
-    )
-    gateway = PlayerDataGateway(
-        providers=[MockPlayerDataProvider(records={"sample striker": record})]
-    )
-    agent = ScoutAgent(fake_llm_client, man_utd_config, gateway)
+    evidence = [
+        Evidence(
+            source=EvidenceSource.DATA_PROVIDER,
+            description="Sample Striker: Forward at Manchester United, age 23",
+            as_of_date="2025-05-25",
+        )
+    ]
+    profile = make_player_profile(stats_evidence=evidence)
     request = AgentRequest(
         query="Should we sign Sample Striker?",
         club_id="manchester_united",
         context={"player": "Sample Striker"},
+        player_profile=profile,
     )
+    agent = ScoutAgent(fake_llm_client, man_utd_config)
 
     prompt = agent.build_user_prompt(request)
 
-    assert "Fetched data (ground your assessment in this" in prompt
+    assert "Verified statistics (ground your assessment in this" in prompt
     assert "Sample Striker" in prompt
     assert "2025-05-25" in prompt
 
 
 def test_scout_agent_prompt_includes_injury_evidence_when_available(fake_llm_client, man_utd_config):
-    from models.domain import InjuryRecord
-    from tools.injury_gateway import InjuryGateway
-    from tools.mock_injury_provider import MockInjuryProvider
-
-    record = InjuryRecord(
-        player="Sample Winger",
-        status="Doubtful",
-        injury_type="Hamstring strain",
-        expected_return="2025-06-10",
-        as_of_date="2025-05-25",
-        source="sample_injuries.csv",
+    evidence = [
+        Evidence(
+            source=EvidenceSource.DATA_PROVIDER,
+            description="Sample Winger: Doubtful (Hamstring strain, expected return 2025-06-10)",
+            as_of_date="2025-05-25",
+        )
+    ]
+    profile = make_player_profile(
+        queried_name="Sample Winger", full_name="Sample Winger", injury_evidence=evidence
     )
-    injury_gateway = InjuryGateway(providers=[MockInjuryProvider(records={"sample winger": record})])
-    agent = ScoutAgent(fake_llm_client, man_utd_config, injury_gateway=injury_gateway)
     request = AgentRequest(
         query="Should we sign Sample Winger?",
         club_id="manchester_united",
         context={"player": "Sample Winger"},
+        player_profile=profile,
     )
+    agent = ScoutAgent(fake_llm_client, man_utd_config)
 
     prompt = agent.build_user_prompt(request)
 

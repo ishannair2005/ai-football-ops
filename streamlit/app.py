@@ -5,7 +5,10 @@ intentionally minimal — the project's emphasis is the agent architecture,
 not the UI — but every section the platform is required to surface
 (executive summary, verdict, confidence, each specialist report, the
 Devil's Advocate challenge, the Manager's final decision, sources, and
-data freshness) is rendered explicitly below.
+data freshness) is rendered explicitly below. A query makes up to 8 real,
+sequential LLM calls, so the loading state surfaces live per-step status
+and reveals each specialist's card as soon as it's ready rather than
+leaving the page blank for the full 60-90+ seconds.
 """
 
 from __future__ import annotations
@@ -31,7 +34,7 @@ except Exception:
     pass
 
 from config.settings import get_settings
-from models.agent_io import AgentRequest, PlatformResult, RecommendationVerdict
+from models.agent_io import AgentRequest, AgentResponse, PlatformResult, RecommendationVerdict
 from services.logging_config import configure_logging
 from services.llm_client import LLMClientError
 from services.platform_factory import build_platform
@@ -53,6 +56,15 @@ SPECIALIST_LABELS = {
     "Performance Analytics Agent": "Performance Analytics",
     "Tactical Agent": "Tactical Fit",
     "Transfer Market Agent": "Transfer Cost Analysis",
+    "Devil's Advocate": "Devil's Advocate Challenge",
+}
+
+SPECIALIST_ICONS = {
+    "Scout Agent": "🔍",
+    "Tactical Agent": "🎯",
+    "Transfer Market Agent": "💰",
+    "Performance Analytics Agent": "📊",
+    "Devil's Advocate": "🥊",
 }
 
 st.title("AI Football Operations Platform")
@@ -78,16 +90,41 @@ if submitted:
     if not query.strip():
         st.warning("Enter a question first.")
     else:
+        context = {"player": player_name.strip()} if player_name.strip() else {}
+        request = AgentRequest(query=query, club_id=settings.active_club, context=context)
+
+        status = st.status("Starting analysis...", expanded=True)
+        cards = st.container()
+
+        def on_status(message: str) -> None:
+            status.update(label=message)
+            status.write(message)
+
+        def on_agent_response(response: AgentResponse) -> None:
+            label = SPECIALIST_LABELS.get(response.agent_name, response.agent_name)
+            icon = SPECIALIST_ICONS.get(response.agent_name, "🧠")
+            with cards.expander(f"{icon} {label} (confidence: {response.confidence:.0%})"):
+                st.write(response.summary)
+                if response.verified_facts:
+                    st.markdown("**Verified Facts**")
+                    for ev in response.verified_facts:
+                        st.write(f"- {ev.description} (source: {ev.source}, as of {ev.as_of_date or 'unknown'})")
+                if response.evidence_gaps:
+                    st.markdown("**Evidence Gaps**")
+                    for gap in response.evidence_gaps:
+                        st.write(f"- {gap}")
+
         try:
-            context = {"player": player_name.strip()} if player_name.strip() else {}
-            with st.spinner("Consulting specialist agents..."):
-                platform = build_platform(settings.active_club)
-                result: PlatformResult = platform.handle_query(
-                    AgentRequest(query=query, club_id=settings.active_club, context=context)
-                )
+            platform = build_platform(settings.active_club)
+            result: PlatformResult = platform.handle_query(
+                request, on_status=on_status, on_agent_response=on_agent_response
+            )
         except LLMClientError as exc:
+            status.update(label="Analysis failed", state="error", expanded=True)
             st.error(str(exc))
         else:
+            status.update(label="Analysis complete", state="complete", expanded=False)
+
             rec = result.recommendation
             report = result.report
 
@@ -101,38 +138,9 @@ if submitted:
             with col2:
                 st.metric("Confidence", f"{rec.confidence:.0%}")
 
-            st.subheader("Specialist Reports")
-            for response in rec.agent_responses:
-                label = SPECIALIST_LABELS.get(response.agent_name, response.agent_name)
-                with st.expander(f"{label} (confidence: {response.confidence:.0%})"):
-                    st.write(response.summary)
-                    if response.supporting_evidence:
-                        st.markdown("**Supporting evidence**")
-                        for ev in response.supporting_evidence:
-                            st.write(f"- [{ev.source}] {ev.description} — {ev.value or 'n/a'}")
-                    if response.assumptions:
-                        st.markdown("**Assumptions**")
-                        for a in response.assumptions:
-                            st.write(f"- {a}")
-                    if response.uncertainties:
-                        st.markdown("**Uncertainties**")
-                        for u in response.uncertainties:
-                            st.write(f"- {u}")
-
             if rec.devils_advocate_challenge:
                 st.subheader("Devil's Advocate Challenge")
                 st.warning(rec.devils_advocate_challenge.summary)
-                with st.expander(
-                    f"Challenge details (confidence: {rec.devils_advocate_challenge.confidence:.0%})"
-                ):
-                    if rec.devils_advocate_challenge.assumptions:
-                        st.markdown("**Assumptions questioned**")
-                        for a in rec.devils_advocate_challenge.assumptions:
-                            st.write(f"- {a}")
-                    if rec.devils_advocate_challenge.uncertainties:
-                        st.markdown("**Hidden risks raised**")
-                        for u in rec.devils_advocate_challenge.uncertainties:
-                            st.write(f"- {u}")
 
             st.subheader("Manager's Final Decision")
             st.write(rec.recommendation)
@@ -157,11 +165,12 @@ if submitted:
             else:
                 st.caption("No data-provider sources were cited for this query.")
 
-            st.caption(
-                f"Data as of: {report.data_as_of}"
-                if report.data_as_of
-                else "Data as of: no dated data-provider evidence was available for this query."
-            )
+            st.subheader("Data Freshness")
+            if report.data_freshness:
+                for domain, as_of in sorted(report.data_freshness.items()):
+                    st.write(f"- **{domain}:** {as_of}")
+            else:
+                st.caption("No dated data-provider evidence was available for this query.")
 
             with st.expander("Full Narrative Report"):
                 st.write(report.narrative)

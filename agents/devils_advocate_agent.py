@@ -5,11 +5,8 @@ from __future__ import annotations
 import json
 
 from agents.base_agent import BaseAgent
-from config.club_config import ClubConfig
 from models.agent_io import AgentResponse, ChallengeRequest
-from prompts.data_prompts import build_news_section
-from services.llm_client import LLMClient
-from tools.news_gateway import NewsGateway
+from prompts.data_prompts import build_identity_section, build_news_section
 
 ROLE_DESCRIPTION = """
 You are the club's Devil's Advocate. You are given the General Manager's
@@ -17,7 +14,8 @@ draft recommendation and the specialist findings underpinning it. Your
 job is to argue the strongest possible case AGAINST the current
 recommendation:
 - Identify hidden risks the draft may have underweighted or ignored
-- Question the assumptions the specialists (and the draft) relied on
+- Question whether the specialists (and the draft) treated an
+  unverified assumption as settled fact rather than stating it as a gap
 - Point out any conflicting evidence between specialists that was
   glossed over rather than resolved
 - Weigh in any recent news below — a rumour of interest from elsewhere, a
@@ -35,15 +33,6 @@ rather than manufacturing a weak objection to seem useful.
 
 
 class DevilsAdvocateAgent(BaseAgent[ChallengeRequest, AgentResponse]):
-    def __init__(
-        self,
-        llm_client: LLMClient,
-        club_config: ClubConfig,
-        news_gateway: NewsGateway | None = None,
-    ) -> None:
-        super().__init__(llm_client, club_config)
-        self._news_gateway = news_gateway
-
     @property
     def name(self) -> str:
         return "Devil's Advocate"
@@ -62,12 +51,10 @@ class DevilsAdvocateAgent(BaseAgent[ChallengeRequest, AgentResponse]):
                 "agent_name": r.agent_name,
                 "summary": r.summary,
                 "confidence": r.confidence,
-                "assumptions": r.assumptions,
-                "uncertainties": r.uncertainties,
+                "evidence_gaps": r.evidence_gaps,
             }
             for r in request.specialist_responses
         ]
-        subject = request.player or request.club_id
         return f"""
 Original question: {request.original_query}
 
@@ -77,12 +64,14 @@ Draft recommendation from the General Manager (JSON):
 Specialist findings underpinning that draft (JSON):
 {json.dumps(specialist_findings, indent=2)}
 
-{build_news_section(self._news_gateway, subject)}
+{build_identity_section(request.player_profile)}
+
+{build_news_section(request.news_evidence, request.news_subject)}
 
 Challenge this draft via the structured response tool: identify hidden
-risks, question assumptions, surface any conflicting specialist evidence
-that was glossed over, weigh in any relevant news above, and produce the
-single strongest opposing argument. If you genuinely cannot find a strong
-opposing argument, say so and rate your challenge's confidence low rather
-than manufacturing one.
+risks, question whether an unverified assumption was treated as fact,
+surface any conflicting specialist evidence that was glossed over, weigh
+in any relevant news above, and produce the single strongest opposing
+argument. If you genuinely cannot find a strong opposing argument, say so
+and rate your challenge's confidence low rather than manufacturing one.
 """.strip()

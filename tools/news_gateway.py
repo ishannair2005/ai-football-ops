@@ -9,7 +9,7 @@ to pick a "winner" between.
 
 from __future__ import annotations
 
-from models.agent_io import Evidence, EvidenceSource
+from models.agent_io import Evidence, EvidenceDomain, EvidenceSource
 from models.domain import NewsItem
 from tools.news_provider import NewsProvider
 
@@ -32,4 +32,5 @@ class NewsGateway:
             value=f"source={item.source}",
             as_of_date=item.as_of_date,
             confidence=0.6 if item.category == "rumour" else 0.85,
+            domain=EvidenceDomain.NEWS,
         )

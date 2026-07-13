@@ -4,6 +4,7 @@ from agents.report_agent import ReportAgent
 from models.agent_io import (
     AgentResponse,
     Evidence,
+    EvidenceDomain,
     EvidenceSource,
     FinalRecommendation,
     ReportRequest,
@@ -21,6 +22,7 @@ def _recommendation() -> FinalRecommendation:
                 source=EvidenceSource.DATA_PROVIDER,
                 description="Sample Striker stats",
                 as_of_date="2025-05-25",
+                domain=EvidenceDomain.PLAYER_STATS,
             ),
         ],
     )
@@ -38,6 +40,7 @@ def _recommendation() -> FinalRecommendation:
                 source=EvidenceSource.LLM_KNOWLEDGE,
                 description="General market estimate",
                 as_of_date="2025-04-01",
+                domain=EvidenceDomain.TRANSFER_MARKET,
             ),
         ],
     )
@@ -50,6 +53,7 @@ def _recommendation() -> FinalRecommendation:
                 source=EvidenceSource.DATA_PROVIDER,
                 description="Sample Striker stats",
                 as_of_date="2025-05-25",
+                domain=EvidenceDomain.PLAYER_STATS,
             ),
         ],
     )
@@ -94,13 +98,43 @@ def test_collect_sources_dedupes_across_specialists_and_challenge():
     ]
 
 
-def test_earliest_as_of_date_picks_the_most_conservative_date():
+def test_collect_data_freshness_groups_by_domain_and_picks_earliest():
     recommendation = _recommendation()
 
-    assert ReportAgent._earliest_as_of_date(recommendation) == "2025-04-01"
+    freshness = ReportAgent._collect_data_freshness(recommendation)
+
+    assert freshness == {
+        "Player statistics": "2025-05-25",
+        "Transfer market": "2025-04-01",
+    }
 
 
-def test_earliest_as_of_date_is_none_when_no_evidence_has_dates():
+def test_collect_data_freshness_skips_evidence_without_a_domain():
+    recommendation = FinalRecommendation(
+        executive_summary="x",
+        recommendation="x",
+        verdict=RecommendationVerdict.MONITOR,
+        confidence=0.5,
+        agent_responses=[
+            AgentResponse(
+                agent_name="Scout Agent",
+                summary="x",
+                confidence=0.5,
+                supporting_evidence=[
+                    Evidence(
+                        source=EvidenceSource.DATA_PROVIDER,
+                        description="no domain tagged",
+                        as_of_date="2025-01-01",
+                    )
+                ],
+            )
+        ],
+    )
+
+    assert ReportAgent._collect_data_freshness(recommendation) == {}
+
+
+def test_collect_data_freshness_is_empty_when_no_evidence_has_dates():
     recommendation = FinalRecommendation(
         executive_summary="x",
         recommendation="x",
@@ -109,7 +143,7 @@ def test_earliest_as_of_date_is_none_when_no_evidence_has_dates():
         agent_responses=[AgentResponse(agent_name="Scout Agent", summary="x", confidence=0.5)],
     )
 
-    assert ReportAgent._earliest_as_of_date(recommendation) is None
+    assert ReportAgent._collect_data_freshness(recommendation) == {}
     assert ReportAgent._collect_sources(recommendation) == []
 
 
@@ -134,4 +168,7 @@ def test_analyze_overrides_verdict_confidence_sources_and_freshness(fake_llm_cli
         "data_provider (as of 2025-05-25)",
         "llm_knowledge (as of 2025-04-01)",
     ]
-    assert report.data_as_of == "2025-04-01"
+    assert report.data_freshness == {
+        "Player statistics": "2025-05-25",
+        "Transfer market": "2025-04-01",
+    }

@@ -9,7 +9,7 @@ one place.
 from __future__ import annotations
 
 from agents.devils_advocate_agent import DevilsAdvocateAgent
-from agents.manager_agent import GeneralManagerAgent
+from agents.manager_agent import AgentResponseCallback, GeneralManagerAgent, StatusCallback
 from agents.performance_analytics_agent import PerformanceAnalyticsAgent
 from agents.report_agent import ReportAgent
 from agents.scout_agent import ScoutAgent
@@ -21,13 +21,26 @@ from models.agent_io import AgentRequest, PlatformResult, ReportRequest
 from services.llm_client import AnthropicLLMClient, LLMClient
 from tools.csv_injury_provider import CSVInjuryProvider
 from tools.csv_news_provider import CSVNewsProvider
+from tools.csv_player_resolver import CSVPlayerResolver
 from tools.csv_provider import CSVPlayerDataProvider
 from tools.data_gateway import PlayerDataGateway
 from tools.injury_gateway import InjuryGateway
 from tools.mock_injury_provider import MockInjuryProvider
 from tools.mock_news_provider import MockNewsProvider
+from tools.mock_player_resolver import MockPlayerResolver
 from tools.mock_provider import MockPlayerDataProvider
 from tools.news_gateway import NewsGateway
+from tools.player_identity_gateway import PlayerIdentityGateway
+
+
+def _build_identity_gateway() -> PlayerIdentityGateway:
+    csv_path = DATA_DIR / "player_identity" / "sample_identities.csv"
+    return PlayerIdentityGateway(
+        providers=[
+            CSVPlayerResolver(csv_path),
+            MockPlayerResolver(),
+        ]
+    )
 
 
 def _build_player_data_gateway() -> PlayerDataGateway:
@@ -69,19 +82,34 @@ def build_general_manager(
     settings = get_settings()
     club_config: ClubConfig = load_club_config(club_id or settings.active_club)
     client = llm_client or AnthropicLLMClient(settings)
+
+    # Only the Manager holds gateways now — it resolves identity and
+    # fetches stats/injury/news exactly once and threads the same
+    # verified profile to every specialist, so no agent independently
+    # re-fetches or re-infers player information.
+    identity_gateway = _build_identity_gateway()
     data_gateway = _build_player_data_gateway()
     injury_gateway = _build_injury_gateway()
     news_gateway = _build_news_gateway()
 
     # Additional specialists register here as they're built in later phases.
     specialists = [
-        ScoutAgent(client, club_config, data_gateway, injury_gateway),
+        ScoutAgent(client, club_config),
         TacticalAgent(client, club_config),
-        TransferMarketAgent(client, club_config, data_gateway),
-        PerformanceAnalyticsAgent(client, club_config, data_gateway),
+        TransferMarketAgent(client, club_config),
+        PerformanceAnalyticsAgent(client, club_config),
     ]
-    devils_advocate = DevilsAdvocateAgent(client, club_config, news_gateway)
-    return GeneralManagerAgent(client, club_config, specialists, devils_advocate)
+    devils_advocate = DevilsAdvocateAgent(client, club_config)
+    return GeneralManagerAgent(
+        client,
+        club_config,
+        specialists,
+        devils_advocate,
+        identity_gateway=identity_gateway,
+        data_gateway=data_gateway,
+        injury_gateway=injury_gateway,
+        news_gateway=news_gateway,
+    )
 
 
 class FootballOperationsPlatform:
@@ -91,8 +119,16 @@ class FootballOperationsPlatform:
         self._manager = manager
         self._report_agent = report_agent
 
-    def handle_query(self, request: AgentRequest) -> PlatformResult:
-        recommendation = self._manager.handle_query(request)
+    def handle_query(
+        self,
+        request: AgentRequest,
+        on_status: StatusCallback | None = None,
+        on_agent_response: AgentResponseCallback | None = None,
+    ) -> PlatformResult:
+        recommendation = self._manager.handle_query(request, on_status, on_agent_response)
+
+        if on_status is not None:
+            on_status("Writing the final report...")
         report_request = ReportRequest(
             original_query=request.query,
             club_id=request.club_id,

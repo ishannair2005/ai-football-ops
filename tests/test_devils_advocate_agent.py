@@ -1,10 +1,17 @@
 from __future__ import annotations
 
 from agents.devils_advocate_agent import DevilsAdvocateAgent
-from models.agent_io import AgentResponse, ChallengeRequest, ManagerSynthesis, RecommendationVerdict
+from models.agent_io import (
+    AgentResponse,
+    ChallengeRequest,
+    Evidence,
+    EvidenceSource,
+    ManagerSynthesis,
+    RecommendationVerdict,
+)
 
 
-def _challenge_request() -> ChallengeRequest:
+def _challenge_request(**overrides) -> ChallengeRequest:
     draft = ManagerSynthesis(
         executive_summary="United should pursue the signing.",
         recommendation="Sign the player in the summer window.",
@@ -20,12 +27,14 @@ def _challenge_request() -> ChallengeRequest:
             confidence=0.8,
         )
     ]
-    return ChallengeRequest(
+    defaults = dict(
         original_query="Should United sign Sample Striker?",
         club_id="manchester_united",
         draft_recommendation=draft,
         specialist_responses=specialist_responses,
     )
+    defaults.update(overrides)
+    return ChallengeRequest(**defaults)
 
 
 def test_devils_advocate_system_prompt_includes_club_context(fake_llm_client, man_utd_config):
@@ -59,24 +68,17 @@ def test_devils_advocate_analyze_returns_named_response(fake_llm_client, man_utd
     assert len(fake_llm_client.calls) == 1
 
 
-def test_devils_advocate_prompt_includes_news_when_gateway_and_player_given(
-    fake_llm_client, man_utd_config
-):
-    from models.domain import NewsItem
-    from tools.news_gateway import NewsGateway
-    from tools.mock_news_provider import MockNewsProvider
-
-    item = NewsItem(
-        subject="Sample Striker",
-        headline="Sample Striker training ground bust-up reported",
-        category="rumour",
-        summary="Unconfirmed reports of a dressing room disagreement.",
-        as_of_date="2025-05-10",
-        source="sample_news.csv",
-    )
-    gateway = NewsGateway(providers=[MockNewsProvider(items={"sample striker": [item]})])
-    agent = DevilsAdvocateAgent(fake_llm_client, man_utd_config, gateway)
-    request = _challenge_request().model_copy(update={"player": "Sample Striker"})
+def test_devils_advocate_prompt_includes_news_when_given(fake_llm_client, man_utd_config):
+    news_evidence = [
+        Evidence(
+            source=EvidenceSource.DATA_PROVIDER,
+            description="[rumour] Sample Striker training ground bust-up reported — "
+            "Unconfirmed reports of a dressing room disagreement.",
+            as_of_date="2025-05-10",
+        )
+    ]
+    agent = DevilsAdvocateAgent(fake_llm_client, man_utd_config)
+    request = _challenge_request(news_evidence=news_evidence, news_subject="Sample Striker")
 
     prompt = agent.build_user_prompt(request)
 

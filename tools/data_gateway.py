@@ -9,7 +9,7 @@ winner, per the platform's data-honesty rules.
 
 from __future__ import annotations
 
-from models.agent_io import Evidence, EvidenceSource
+from models.agent_io import Evidence, EvidenceDomain, EvidenceSource
 from models.domain import PlayerStatsRecord
 from tools.data_provider import PlayerDataProvider
 
@@ -52,6 +52,7 @@ class PlayerDataGateway:
             value=f"source={record.source}",
             as_of_date=record.as_of_date,
             confidence=0.9,
+            domain=EvidenceDomain.PLAYER_STATS,
         )
 
     @staticmethod
@@ -78,4 +79,5 @@ class PlayerDataGateway:
             value=None,
             as_of_date=baseline.as_of_date,
             confidence=0.3,
+            domain=EvidenceDomain.PLAYER_STATS,
         )

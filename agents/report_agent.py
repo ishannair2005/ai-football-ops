@@ -61,9 +61,12 @@ Write the executive report via the structured response tool: a fresh,
 polished `executive_summary`, and a `narrative` that covers Scout Report,
 Performance Analytics, Tactical Fit, Transfer Cost Analysis, Devil's
 Advocate Challenge, and the Manager's Final Decision by name, using the
-data above. You may leave `verdict`, `confidence`, `sources_used`, and
-`data_as_of` as placeholders — they will be filled in from the
-recommendation directly, not from your response.
+data above. Distinguish verified facts (evidence sourced from a data
+provider, with its as-of date) from reasoned analysis and from evidence
+gaps — never blur the three together as if a gap were a fact. You may
+leave `verdict`, `confidence`, `sources_used`, and `data_freshness` as
+placeholders — they will be filled in from the recommendation directly,
+not from your response.
 """.strip()
 
     def analyze(self, request: ReportRequest) -> ScoutingReport:
@@ -72,7 +75,7 @@ recommendation directly, not from your response.
         report.verdict = recommendation.verdict
         report.confidence = recommendation.confidence
         report.sources_used = self._collect_sources(recommendation)
-        report.data_as_of = self._earliest_as_of_date(recommendation)
+        report.data_freshness = self._collect_data_freshness(recommendation)
         return report
 
     @staticmethod
@@ -90,14 +93,20 @@ recommendation directly, not from your response.
         return sorted(sources)
 
     @staticmethod
-    def _earliest_as_of_date(recommendation: FinalRecommendation) -> str | None:
+    def _collect_data_freshness(recommendation: FinalRecommendation) -> dict[str, str]:
+        """Earliest as-of date per :class:`EvidenceDomain`, so freshness is
+        reported per data-type rather than collapsed into one blended date.
+        Evidence with no domain tag is skipped rather than guessed into a
+        bucket."""
         responses = list(recommendation.agent_responses)
         if recommendation.devils_advocate_challenge:
             responses.append(recommendation.devils_advocate_challenge)
-        dates = [
-            evidence.as_of_date
-            for response in responses
-            for evidence in response.supporting_evidence
-            if evidence.as_of_date
-        ]
-        return min(dates) if dates else None
+
+        dates_by_domain: dict[str, list[str]] = {}
+        for response in responses:
+            for evidence in response.supporting_evidence:
+                if evidence.domain is None or evidence.as_of_date is None:
+                    continue
+                dates_by_domain.setdefault(evidence.domain.value, []).append(evidence.as_of_date)
+
+        return {domain: min(dates) for domain, dates in dates_by_domain.items()}

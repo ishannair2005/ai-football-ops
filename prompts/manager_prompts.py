@@ -55,8 +55,7 @@ def _specialist_findings_json(specialist_responses: list[AgentResponse]) -> str:
             "summary": r.summary,
             "confidence": r.confidence,
             "supporting_evidence": [e.model_dump(mode="json") for e in r.supporting_evidence],
-            "assumptions": r.assumptions,
-            "uncertainties": r.uncertainties,
+            "evidence_gaps": r.evidence_gaps,
             "recommended_next_steps": r.recommended_next_steps,
         }
         for r in specialist_responses

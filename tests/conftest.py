@@ -6,10 +6,29 @@ from config.club_config import ClubConfig
 from models.agent_io import (
     AgentResponse,
     ManagerSynthesis,
+    PlayerProfile,
     RecommendationVerdict,
     ScoutingReport,
 )
 from services.llm_client import LLMClient
+
+
+def make_player_profile(**overrides) -> PlayerProfile:
+    """Shared factory for a resolved PlayerProfile, used across specialist
+    agent tests so each doesn't hand-build an identical one."""
+    defaults = dict(
+        queried_name="Sample Striker",
+        resolved=True,
+        full_name="Sample Striker",
+        club="Manchester United",
+        identity_as_of="2025-05-25",
+        identity_source="sample_identities.csv",
+        stats_evidence=[],
+        injury_evidence=[],
+        evidence_gaps=[],
+    )
+    defaults.update(overrides)
+    return PlayerProfile(**defaults)
 
 
 class FakeLLMClient(LLMClient):
@@ -34,8 +53,7 @@ class FakeLLMClient(LLMClient):
             return AgentResponse(
                 summary="Fake specialist finding.",
                 confidence=0.7,
-                assumptions=["Assumed fake data is representative."],
-                uncertainties=["No live data source connected in this test."],
+                evidence_gaps=["No live data source connected in this test."],
                 recommended_next_steps=["Connect a real data provider."],
             )
         if response_model is ManagerSynthesis:

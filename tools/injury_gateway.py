@@ -8,7 +8,7 @@ queried in priority order and the first hit wins.
 
 from __future__ import annotations
 
-from models.agent_io import Evidence, EvidenceSource
+from models.agent_io import Evidence, EvidenceDomain, EvidenceSource
 from models.domain import InjuryRecord
 from tools.injury_provider import InjuryProvider
 
@@ -34,4 +34,5 @@ class InjuryGateway:
             value=f"source={record.source}",
             as_of_date=record.as_of_date,
             confidence=0.9,
+            domain=EvidenceDomain.INJURY,
         )

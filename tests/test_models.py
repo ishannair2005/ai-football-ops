@@ -21,8 +21,21 @@ def test_agent_response_confidence_must_be_in_range():
 def test_agent_response_defaults():
     response = AgentResponse(summary="Solid understudy for the right wing-back role.", confidence=0.6)
     assert response.supporting_evidence == []
-    assert response.assumptions == []
+    assert response.evidence_gaps == []
     assert response.agent_name == ""
+
+
+def test_agent_response_verified_facts_only_includes_data_provider_evidence():
+    response = AgentResponse(
+        summary="x",
+        confidence=0.5,
+        supporting_evidence=[
+            Evidence(source=EvidenceSource.DATA_PROVIDER, description="Verified stat", as_of_date="2026-07-10"),
+            Evidence(source=EvidenceSource.LLM_KNOWLEDGE, description="General knowledge guess"),
+        ],
+    )
+
+    assert [e.description for e in response.verified_facts] == ["Verified stat"]
 
 
 def test_evidence_requires_valid_source():

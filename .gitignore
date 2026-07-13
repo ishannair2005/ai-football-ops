@@ -6,3 +6,5 @@ venv/
 .pytest_cache/
 *.egg-info/
 .streamlit/secrets.toml
+.agents/
+.claude/

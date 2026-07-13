@@ -1,10 +1,8 @@
 from __future__ import annotations
 
 from agents.transfer_market_agent import TransferMarketAgent
-from models.agent_io import AgentRequest
-from models.domain import PlayerStatsRecord
-from tools.data_gateway import PlayerDataGateway
-from tools.mock_provider import MockPlayerDataProvider
+from models.agent_io import AgentRequest, Evidence, EvidenceSource
+from tests.conftest import make_player_profile
 
 
 def test_transfer_market_agent_returns_named_response(fake_llm_client, man_utd_config):
@@ -40,28 +38,24 @@ def test_transfer_market_agent_reports_configured_budget(fake_llm_client, man_ut
     assert "£250000.0" in prompt
 
 
-def test_transfer_market_agent_includes_fetched_data_when_gateway_and_player_given(
-    fake_llm_client, man_utd_config
-):
-    record = PlayerStatsRecord(
-        name="Sample Striker",
-        position="Forward",
-        club="Manchester United",
-        age=23,
-        as_of_date="2025-05-25",
-        source="sample_players.csv",
-    )
-    gateway = PlayerDataGateway(
-        providers=[MockPlayerDataProvider(records={"sample striker": record})]
-    )
-    agent = TransferMarketAgent(fake_llm_client, man_utd_config, gateway)
+def test_transfer_market_agent_includes_fetched_data_when_profile_given(fake_llm_client, man_utd_config):
+    evidence = [
+        Evidence(
+            source=EvidenceSource.DATA_PROVIDER,
+            description="Sample Striker stats",
+            as_of_date="2025-05-25",
+        )
+    ]
+    profile = make_player_profile(stats_evidence=evidence)
     request = AgentRequest(
         query="What would Sample Striker cost?",
         club_id="manchester_united",
         context={"player": "Sample Striker"},
+        player_profile=profile,
     )
+    agent = TransferMarketAgent(fake_llm_client, man_utd_config)
 
     prompt = agent.build_user_prompt(request)
 
-    assert "Fetched data (ground your assessment in this" in prompt
+    assert "Verified statistics (ground your assessment in this" in prompt
     assert "2025-05-25" in prompt

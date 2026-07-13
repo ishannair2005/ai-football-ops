@@ -36,3 +36,4 @@ def test_tactical_agent_user_prompt_includes_query_and_context(fake_llm_client, 
 
     assert "Which striker best fits the system?" in prompt
     assert "candidate: Sample Striker" in prompt
+    assert "no player named" in prompt.lower()
