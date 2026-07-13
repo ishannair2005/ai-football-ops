@@ -5,6 +5,8 @@ import pytest
 from config.club_config import ClubConfig
 from models.agent_io import (
     AgentResponse,
+    ComparisonOutcome,
+    ComparisonSynthesis,
     ManagerSynthesis,
     PlayerNameExtraction,
     PlayerProfile,
@@ -51,7 +53,7 @@ class FakeLLMClient(LLMClient):
             }
         )
         if response_model is PlayerNameExtraction:
-            return PlayerNameExtraction(player_name=None)
+            return PlayerNameExtraction(players=[])
         if response_model is AgentResponse:
             return AgentResponse(
                 summary="Fake specialist finding.",
@@ -68,6 +70,15 @@ class FakeLLMClient(LLMClient):
                 key_risks=["Fake risk."],
                 next_steps=["Fake next step."],
                 challenge_resolution="Fake resolution.",
+            )
+        if response_model is ComparisonSynthesis:
+            return ComparisonSynthesis(
+                executive_summary="Fake comparison executive summary.",
+                outcome=ComparisonOutcome.CLEAR_PREFERENCE,
+                preferred_player_index=0,
+                verdict_rationale="Fake rationale grounded in club fit.",
+                confidence=0.6,
+                key_differentiators=["Fake differentiator."],
             )
         if response_model is ScoutingReport:
             return ScoutingReport(

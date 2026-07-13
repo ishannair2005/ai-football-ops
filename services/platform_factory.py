@@ -17,7 +17,7 @@ from agents.tactical_agent import TacticalAgent
 from agents.transfer_market_agent import TransferMarketAgent
 from config.club_config import ClubConfig, load_club_config
 from config.settings import DATA_DIR, get_settings
-from models.agent_io import AgentRequest, PlatformResult, ReportRequest
+from models.agent_io import AgentRequest, ComparisonRecommendation, PlatformResult, ReportRequest
 from services.llm_client import AnthropicLLMClient, LLMClient
 from tools.csv_injury_provider import CSVInjuryProvider
 from tools.csv_news_provider import CSVNewsProvider
@@ -113,7 +113,12 @@ def build_general_manager(
 
 
 class FootballOperationsPlatform:
-    """Runs a query through the General Manager, then the Report Agent."""
+    """Runs a query through the General Manager, then the Report Agent.
+
+    Comparison queries (2+ players named) don't go through the Report
+    Agent yet — that narrative polish is deferred until the comparison
+    flow is validated — so they're returned as a bare ComparisonRecommendation.
+    """
 
     def __init__(self, manager: GeneralManagerAgent, report_agent: ReportAgent) -> None:
         self._manager = manager
@@ -124,8 +129,11 @@ class FootballOperationsPlatform:
         request: AgentRequest,
         on_status: StatusCallback | None = None,
         on_agent_response: AgentResponseCallback | None = None,
-    ) -> PlatformResult:
+    ) -> PlatformResult | ComparisonRecommendation:
         recommendation = self._manager.handle_query(request, on_status, on_agent_response)
+
+        if isinstance(recommendation, ComparisonRecommendation):
+            return recommendation
 
         if on_status is not None:
             on_status("Writing the final report...")

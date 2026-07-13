@@ -48,16 +48,19 @@ Respond only via the structured tool call provided to you.
 """.strip()
 
 
-PLAYER_EXTRACTION_SYSTEM_PROMPT = """
+_MAX_EXTRACTED_PLAYERS = 5
+
+PLAYER_EXTRACTION_SYSTEM_PROMPT = f"""
 You are a lightweight query-parsing step for a football operations
 platform, running before any specialist analysis. Your only job is to
-decide whether a question names one specific player, and if so extract
-that name exactly as written in the query.
+decide which player(s), if any, a question names, and extract each name
+exactly as written in the query, in the order mentioned.
 
-Do not evaluate, judge, analyze, or say anything about the player. Do not
+Do not evaluate, judge, analyze, or say anything about any player. Do not
 invent a name if none is given. If the query is about a position group,
-formation, squad, or club in general with no individual named, return
-null.
+formation, squad, or club in general with no individual named, return an
+empty list. If the query compares more than {_MAX_EXTRACTED_PLAYERS}
+players, extract only the first {_MAX_EXTRACTED_PLAYERS} mentioned.
 """.strip()
 
 
@@ -65,13 +68,13 @@ def build_player_extraction_user_prompt(query: str) -> str:
     return f"""
 Query: {query}
 
-Extract the specific player named in this query, if any, via the
+Extract every specific player named in this query, if any, via the
 structured response tool.
 """.strip()
 
 
-def _specialist_findings_json(specialist_responses: list[AgentResponse]) -> str:
-    findings = [
+def _specialist_findings(specialist_responses: list[AgentResponse]) -> list[dict]:
+    return [
         {
             "agent_name": r.agent_name,
             "summary": r.summary,
@@ -82,7 +85,10 @@ def _specialist_findings_json(specialist_responses: list[AgentResponse]) -> str:
         }
         for r in specialist_responses
     ]
-    return json.dumps(findings, indent=2)
+
+
+def _specialist_findings_json(specialist_responses: list[AgentResponse]) -> str:
+    return json.dumps(_specialist_findings(specialist_responses), indent=2)
 
 
 def build_manager_user_prompt(
@@ -97,6 +103,61 @@ Specialist findings (JSON):
 Synthesize these findings into a single draft recommendation via the
 structured response tool. Leave `challenge_resolution` unset — there is
 no challenge to resolve yet.
+""".strip()
+
+
+COMPARISON_ROLE_DESCRIPTION = """
+You are the General Manager comparing multiple candidate signings. Your
+job is NOT to rank which player is the better footballer in the
+abstract — decide which candidate (if any) is the better SIGNING for
+this specific club, right now: fit with the current formation and
+manager's known usage, whether they address a genuine squad need or
+duplicate a strength the squad already has, and financial fit. A more
+talented player who fits worse or costs more can be the wrong choice.
+
+If several candidates are genuinely comparable, say so (`MULTIPLE_VIABLE`)
+rather than forcing a false preference. If none of them should be signed,
+say that (`NONE_RECOMMENDED`) rather than picking the least-bad option.
+""".strip()
+
+
+def build_comparison_system_prompt(club: ClubConfig) -> str:
+    return f"""
+You are the General Manager of {club.name} ({club.short_name}), playing
+in {club.league} under manager {club.manager}, typically set up in a
+{club.formation} formation.
+
+{COMPARISON_ROLE_DESCRIPTION}
+
+{DATA_HONESTY_RULES}
+
+Respond only via the structured tool call provided to you.
+""".strip()
+
+
+def build_comparison_user_prompt(
+    request: AgentRequest,
+    player_names: list[str],
+    responses_by_player: dict[str, list[AgentResponse]],
+) -> str:
+    candidates = [
+        {
+            "index": i,
+            "player_name": name,
+            "specialist_findings": _specialist_findings(responses_by_player[name]),
+        }
+        for i, name in enumerate(player_names)
+    ]
+    return f"""
+Original question: {request.query}
+
+Candidates under comparison (JSON, indexed):
+{json.dumps(candidates, indent=2)}
+
+Decide which candidate (if any) is the better signing for this club via
+the structured response tool. If you pick one, set `preferred_player_index`
+to its 0-based index above — never restate its name. `verdict_rationale`
+must be grounded in fit for this club/system/budget, not raw ability.
 """.strip()
 
 

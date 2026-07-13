@@ -34,7 +34,14 @@ except Exception:
     pass
 
 from config.settings import get_settings
-from models.agent_io import AgentRequest, AgentResponse, PlatformResult, RecommendationVerdict
+from models.agent_io import (
+    AgentRequest,
+    AgentResponse,
+    ComparisonOutcome,
+    ComparisonRecommendation,
+    PlatformResult,
+    RecommendationVerdict,
+)
 from services.logging_config import configure_logging
 from services.llm_client import LLMClientError
 from services.platform_factory import build_platform
@@ -101,9 +108,15 @@ if submitted:
             status.write(message)
 
         def on_agent_response(response: AgentResponse) -> None:
-            label = SPECIALIST_LABELS.get(response.agent_name, response.agent_name)
-            icon = SPECIALIST_ICONS.get(response.agent_name, "🧠")
-            with cards.expander(f"{icon} {label} (confidence: {response.confidence:.0%})"):
+            # In comparison mode, agent_name is suffixed with the candidate's
+            # name (e.g. "Scout Agent (Sample Striker)") for disambiguation —
+            # strip it before looking up the label/icon, then keep it in the
+            # displayed header.
+            base_name, _, suffix = response.agent_name.partition(" (")
+            suffix = f" ({suffix}" if suffix else ""
+            label = SPECIALIST_LABELS.get(base_name, base_name)
+            icon = SPECIALIST_ICONS.get(base_name, "🧠")
+            with cards.expander(f"{icon} {label}{suffix} (confidence: {response.confidence:.0%})"):
                 st.write(response.summary)
                 if response.verified_facts:
                     st.markdown("**Verified Facts**")
@@ -116,7 +129,7 @@ if submitted:
 
         try:
             platform = build_platform(settings.active_club)
-            result: PlatformResult = platform.handle_query(
+            result = platform.handle_query(
                 request, on_status=on_status, on_agent_response=on_agent_response
             )
         except LLMClientError as exc:
@@ -125,52 +138,98 @@ if submitted:
         else:
             status.update(label="Analysis complete", state="complete", expanded=False)
 
-            rec = result.recommendation
-            report = result.report
+            if isinstance(result, ComparisonRecommendation):
+                comparison = result
 
-            st.header("Executive Summary")
-            st.write(report.executive_summary)
+                st.header("Executive Summary")
+                st.write(comparison.executive_summary)
 
-            col1, col2 = st.columns([3, 1])
-            with col1:
-                st.subheader("Overall Recommendation")
-                VERDICT_DISPLAY.get(rec.verdict, st.info)(rec.verdict.value)
-            with col2:
-                st.metric("Confidence", f"{rec.confidence:.0%}")
+                col1, col2 = st.columns([3, 1])
+                with col1:
+                    st.subheader("Comparison Outcome")
+                    if comparison.outcome == ComparisonOutcome.CLEAR_PREFERENCE and comparison.preferred_player:
+                        st.success(f"Preferred signing: {comparison.preferred_player}")
+                    elif comparison.outcome == ComparisonOutcome.MULTIPLE_VIABLE:
+                        st.warning("Multiple candidates are viable — no single standout.")
+                    else:
+                        st.error("None of the candidates are recommended.")
+                with col2:
+                    st.metric("Confidence", f"{comparison.confidence:.0%}")
 
-            if rec.devils_advocate_challenge:
-                st.subheader("Devil's Advocate Challenge")
-                st.warning(rec.devils_advocate_challenge.summary)
+                st.subheader("Rationale")
+                st.write(comparison.verdict_rationale)
 
-            st.subheader("Manager's Final Decision")
-            st.write(rec.recommendation)
-            if rec.challenge_resolution:
-                st.markdown("**How the Devil's Advocate challenge was resolved**")
-                st.write(rec.challenge_resolution)
+                if comparison.key_differentiators:
+                    st.markdown("**Key differentiators**")
+                    for item in comparison.key_differentiators:
+                        st.write(f"- {item}")
 
-            if rec.key_risks:
-                st.markdown("**Key risks**")
-                for risk in rec.key_risks:
-                    st.write(f"- {risk}")
+                st.subheader("Decision Matrix")
+                matrix_rows = []
+                for criterion in comparison.decision_matrix:
+                    row = {"Criterion": criterion.criterion_name}
+                    for rating in criterion.ratings:
+                        row[rating.player_name] = f"{rating.tier.value} ({rating.confidence:.0%})"
+                    matrix_rows.append(row)
+                if matrix_rows:
+                    st.dataframe(matrix_rows, use_container_width=True, hide_index=True)
+                    with st.expander("Full reasoning behind each matrix cell"):
+                        for criterion in comparison.decision_matrix:
+                            st.markdown(f"**{criterion.criterion_name}**")
+                            for rating in criterion.ratings:
+                                st.write(f"- *{rating.player_name}* ({rating.tier.value}): {rating.summary}")
 
-            if rec.next_steps:
-                st.markdown("**Next steps**")
-                for step in rec.next_steps:
-                    st.write(f"- {step}")
-
-            st.subheader("Sources Used")
-            if report.sources_used:
-                for source in report.sources_used:
-                    st.write(f"- {source}")
+                st.caption(
+                    "Each candidate's full specialist reports appeared above as they "
+                    "completed during analysis."
+                )
             else:
-                st.caption("No data-provider sources were cited for this query.")
+                rec = result.recommendation
+                report = result.report
 
-            st.subheader("Data Freshness")
-            if report.data_freshness:
-                for domain, as_of in sorted(report.data_freshness.items()):
-                    st.write(f"- **{domain}:** {as_of}")
-            else:
-                st.caption("No dated data-provider evidence was available for this query.")
+                st.header("Executive Summary")
+                st.write(report.executive_summary)
 
-            with st.expander("Full Narrative Report"):
-                st.write(report.narrative)
+                col1, col2 = st.columns([3, 1])
+                with col1:
+                    st.subheader("Overall Recommendation")
+                    VERDICT_DISPLAY.get(rec.verdict, st.info)(rec.verdict.value)
+                with col2:
+                    st.metric("Confidence", f"{rec.confidence:.0%}")
+
+                if rec.devils_advocate_challenge:
+                    st.subheader("Devil's Advocate Challenge")
+                    st.warning(rec.devils_advocate_challenge.summary)
+
+                st.subheader("Manager's Final Decision")
+                st.write(rec.recommendation)
+                if rec.challenge_resolution:
+                    st.markdown("**How the Devil's Advocate challenge was resolved**")
+                    st.write(rec.challenge_resolution)
+
+                if rec.key_risks:
+                    st.markdown("**Key risks**")
+                    for risk in rec.key_risks:
+                        st.write(f"- {risk}")
+
+                if rec.next_steps:
+                    st.markdown("**Next steps**")
+                    for step in rec.next_steps:
+                        st.write(f"- {step}")
+
+                st.subheader("Sources Used")
+                if report.sources_used:
+                    for source in report.sources_used:
+                        st.write(f"- {source}")
+                else:
+                    st.caption("No data-provider sources were cited for this query.")
+
+                st.subheader("Data Freshness")
+                if report.data_freshness:
+                    for domain, as_of in sorted(report.data_freshness.items()):
+                        st.write(f"- **{domain}:** {as_of}")
+                else:
+                    st.caption("No dated data-provider evidence was available for this query.")
+
+                with st.expander("Full Narrative Report"):
+                    st.write(report.narrative)

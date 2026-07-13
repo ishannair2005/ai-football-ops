@@ -3,13 +3,19 @@ from __future__ import annotations
 from agents.devils_advocate_agent import DevilsAdvocateAgent
 from agents.manager_agent import GeneralManagerAgent
 from agents.scout_agent import ScoutAgent
+from agents.tactical_agent import TacticalAgent
 from models.agent_io import (
     AgentRequest,
     AgentResponse,
+    ComparisonOutcome,
+    ComparisonRatingTier,
+    ComparisonRecommendation,
+    ComparisonSynthesis,
     ManagerSynthesis,
     PlayerNameExtraction,
     RecommendationVerdict,
     ResolvedIdentity,
+    rating_tier_for_confidence,
 )
 from models.domain import InjuryRecord, PlayerStatsRecord
 from services.llm_client import LLMClient
@@ -79,7 +85,7 @@ def test_manager_fires_status_and_agent_response_callbacks(fake_llm_client, man_
     )
 
     assert statuses == [
-        "Checking whether the query names a specific player...",
+        "Checking whether the query names specific players...",
         "Scout Agent is analyzing...",
         "Drafting initial recommendation...",
         "Devil's Advocate is challenging the recommendation...",
@@ -99,7 +105,7 @@ def test_manager_handle_query_works_without_callbacks(fake_llm_client, man_utd_c
     assert result.agent_responses[0].agent_name == "Scout Agent"
 
 
-def test_extract_player_name_prefers_explicit_context_without_calling_llm(fake_llm_client, man_utd_config):
+def test_extract_player_names_prefers_explicit_context_without_calling_llm(fake_llm_client, man_utd_config):
     manager = GeneralManagerAgent(fake_llm_client, man_utd_config, [])
     request = AgentRequest(
         query="Should we sign Tielemans?",
@@ -107,57 +113,57 @@ def test_extract_player_name_prefers_explicit_context_without_calling_llm(fake_l
         context={"player": "Tielemans"},
     )
 
-    name = manager._extract_player_name(request)
+    names = manager._extract_player_names(request)
 
-    assert name == "Tielemans"
+    assert names == ["Tielemans"]
     assert fake_llm_client.calls == []
 
 
-def test_extract_player_name_parses_query_when_field_left_blank(man_utd_config):
-    client = SequencedLLMClient([PlayerNameExtraction(player_name="Tielemans")])
+def test_extract_player_names_parses_query_when_field_left_blank(man_utd_config):
+    client = SequencedLLMClient([PlayerNameExtraction(players=["Tielemans"])])
     manager = GeneralManagerAgent(client, man_utd_config, [])
     request = AgentRequest(query="Should Manchester United sign Tielemans?", club_id="manchester_united")
 
-    name = manager._extract_player_name(request)
+    names = manager._extract_player_names(request)
 
-    assert name == "Tielemans"
+    assert names == ["Tielemans"]
     assert len(client.calls) == 1
 
 
-def test_resolve_player_profile_uses_name_extracted_from_query(man_utd_config):
+def test_extract_player_names_returns_multiple_for_a_comparison_query(man_utd_config):
+    client = SequencedLLMClient([PlayerNameExtraction(players=["Sample Striker", "Sample Winger"])])
+    manager = GeneralManagerAgent(client, man_utd_config, [])
+    request = AgentRequest(
+        query="Compare Sample Striker vs Sample Winger", club_id="manchester_united"
+    )
+
+    names = manager._extract_player_names(request)
+
+    assert names == ["Sample Striker", "Sample Winger"]
+
+
+def test_resolve_player_profile_resolves_real_player_identity(man_utd_config, fake_llm_client):
     identity = ResolvedIdentity(
         full_name="Youri Tielemans", club="Aston Villa", as_of_date="2026-07-13", source="test"
     )
     identity_gateway = PlayerIdentityGateway(
         providers=[MockPlayerResolver(records={"tielemans": identity})]
     )
-    client = SequencedLLMClient([PlayerNameExtraction(player_name="Tielemans")])
-    manager = GeneralManagerAgent(client, man_utd_config, [], identity_gateway=identity_gateway)
-    request = AgentRequest(query="Should Manchester United sign Tielemans?", club_id="manchester_united")
+    manager = GeneralManagerAgent(
+        fake_llm_client, man_utd_config, [], identity_gateway=identity_gateway
+    )
 
-    profile = manager._resolve_player_profile(request)
+    profile = manager._resolve_player_profile("Tielemans")
 
     assert profile.resolved is True
     assert profile.full_name == "Youri Tielemans"
     assert profile.club == "Aston Villa"
 
 
-def test_resolve_player_profile_returns_none_when_no_player_named(fake_llm_client, man_utd_config):
-    manager = GeneralManagerAgent(fake_llm_client, man_utd_config, [])
-    request = AgentRequest(query="Which positions should we strengthen?", club_id="manchester_united")
-
-    assert manager._resolve_player_profile(request) is None
-
-
 def test_resolve_player_profile_records_gaps_when_nothing_configured(fake_llm_client, man_utd_config):
     manager = GeneralManagerAgent(fake_llm_client, man_utd_config, [])
-    request = AgentRequest(
-        query="Should we sign Tielemans?",
-        club_id="manchester_united",
-        context={"player": "Tielemans"},
-    )
 
-    profile = manager._resolve_player_profile(request)
+    profile = manager._resolve_player_profile("Tielemans")
 
     assert profile.resolved is False
     assert profile.full_name is None
@@ -201,13 +207,7 @@ def test_resolve_player_profile_populates_verified_data_when_resolved(fake_llm_c
         data_gateway=data_gateway,
         injury_gateway=injury_gateway,
     )
-    request = AgentRequest(
-        query="Should we sign Sample Striker?",
-        club_id="manchester_united",
-        context={"player": "Sample Striker"},
-    )
-
-    profile = manager._resolve_player_profile(request)
+    profile = manager._resolve_player_profile("Sample Striker")
 
     assert profile.resolved is True
     assert profile.full_name == "Sample Striker"
@@ -298,7 +298,7 @@ def test_manager_uses_resolution_synthesis_not_draft(man_utd_config):
         next_steps=["Final step."],
         challenge_resolution="Partially accepted the challenge; lowered confidence and added a risk.",
     )
-    extraction = PlayerNameExtraction(player_name=None)
+    extraction = PlayerNameExtraction(players=[])
     client = SequencedLLMClient(
         [extraction, specialist_response, draft, challenge_response, final_synthesis]
     )
@@ -318,3 +318,113 @@ def test_manager_uses_resolution_synthesis_not_draft(man_utd_config):
     )
     assert result.devils_advocate_challenge.summary == "Strong opposing argument."
     assert len(client.calls) == 5
+
+
+def test_rating_tier_thresholds():
+    assert rating_tier_for_confidence(0.6) == ComparisonRatingTier.STRONG
+    assert rating_tier_for_confidence(0.75) == ComparisonRatingTier.STRONG
+    assert rating_tier_for_confidence(0.59) == ComparisonRatingTier.MODERATE
+    assert rating_tier_for_confidence(0.4) == ComparisonRatingTier.MODERATE
+    assert rating_tier_for_confidence(0.39) == ComparisonRatingTier.WEAK
+    assert rating_tier_for_confidence(0.0) == ComparisonRatingTier.WEAK
+
+
+def test_comparison_recommendation_computes_preferred_player_from_index():
+    synthesis = ComparisonSynthesis(
+        executive_summary="x",
+        outcome=ComparisonOutcome.CLEAR_PREFERENCE,
+        preferred_player_index=1,
+        verdict_rationale="x",
+        confidence=0.6,
+    )
+    rec = ComparisonRecommendation.from_synthesis(synthesis, ["A", "B"], [], [])
+    assert rec.preferred_player == "B"
+
+
+def test_comparison_recommendation_preferred_player_none_when_multiple_viable():
+    synthesis = ComparisonSynthesis(
+        executive_summary="x",
+        outcome=ComparisonOutcome.MULTIPLE_VIABLE,
+        preferred_player_index=None,
+        verdict_rationale="x",
+        confidence=0.5,
+    )
+    rec = ComparisonRecommendation.from_synthesis(synthesis, ["A", "B"], [], [])
+    assert rec.preferred_player is None
+
+
+def test_comparison_recommendation_preferred_player_none_when_index_out_of_range():
+    synthesis = ComparisonSynthesis(
+        executive_summary="x",
+        outcome=ComparisonOutcome.CLEAR_PREFERENCE,
+        preferred_player_index=5,
+        verdict_rationale="x",
+        confidence=0.5,
+    )
+    rec = ComparisonRecommendation.from_synthesis(synthesis, ["A", "B"], [], [])
+    assert rec.preferred_player is None
+
+
+def test_handle_comparison_runs_each_specialist_once_per_candidate(fake_llm_client, man_utd_config):
+    scout = ScoutAgent(fake_llm_client, man_utd_config)
+    tactical = TacticalAgent(fake_llm_client, man_utd_config)
+    manager = GeneralManagerAgent(fake_llm_client, man_utd_config, [scout, tactical])
+    request = AgentRequest(
+        query="Compare Sample Striker vs Sample Winger", club_id="manchester_united"
+    )
+
+    result = manager._handle_comparison(request, ["Sample Striker", "Sample Winger"])
+
+    assert isinstance(result, ComparisonRecommendation)
+    assert result.player_names == ["Sample Striker", "Sample Winger"]
+    assert [e.player_name for e in result.players] == ["Sample Striker", "Sample Winger"]
+    assert len(result.players[0].responses) == 2
+    assert len(result.players[1].responses) == 2
+    assert result.players[0].responses[0].agent_name == "Scout Agent (Sample Striker)"
+    assert result.players[1].responses[0].agent_name == "Scout Agent (Sample Winger)"
+    assert result.players[0].responses[1].agent_name == "Tactical Agent (Sample Striker)"
+
+
+def test_handle_comparison_builds_decision_matrix_from_real_responses(fake_llm_client, man_utd_config):
+    scout = ScoutAgent(fake_llm_client, man_utd_config)
+    manager = GeneralManagerAgent(fake_llm_client, man_utd_config, [scout])
+    request = AgentRequest(query="Compare A vs B", club_id="manchester_united")
+
+    result = manager._handle_comparison(request, ["Sample Striker", "Sample Winger"])
+
+    assert len(result.decision_matrix) == 1
+    criterion = result.decision_matrix[0]
+    assert criterion.criterion_name == "Scout Agent"
+    assert len(criterion.ratings) == 2
+    # FakeLLMClient's canned AgentResponse always has confidence 0.7.
+    assert criterion.ratings[0].confidence == 0.7
+    assert criterion.ratings[0].tier == ComparisonRatingTier.STRONG
+    assert criterion.ratings[0].summary == "Fake specialist finding."
+
+
+def test_handle_query_routes_to_comparison_when_two_players_extracted(man_utd_config):
+    client = SequencedLLMClient(
+        [
+            PlayerNameExtraction(players=["Sample Striker", "Sample Winger"]),
+            AgentResponse(agent_name="Scout Agent", summary="Striker take.", confidence=0.6),
+            AgentResponse(agent_name="Scout Agent", summary="Winger take.", confidence=0.5),
+            ComparisonSynthesis(
+                executive_summary="Comparison summary.",
+                outcome=ComparisonOutcome.CLEAR_PREFERENCE,
+                preferred_player_index=0,
+                verdict_rationale="Striker fits the system better.",
+                confidence=0.6,
+            ),
+        ]
+    )
+    scout = ScoutAgent(client, man_utd_config)
+    manager = GeneralManagerAgent(client, man_utd_config, [scout])
+    request = AgentRequest(
+        query="Compare Sample Striker vs Sample Winger", club_id="manchester_united"
+    )
+
+    result = manager.handle_query(request)
+
+    assert isinstance(result, ComparisonRecommendation)
+    assert result.preferred_player == "Sample Striker"
+    assert result.outcome == ComparisonOutcome.CLEAR_PREFERENCE

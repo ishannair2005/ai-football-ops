@@ -1,6 +1,13 @@
 from __future__ import annotations
 
-from models.agent_io import AgentRequest, PlatformResult, RecommendationVerdict
+from agents.manager_agent import GeneralManagerAgent
+from models.agent_io import (
+    AgentRequest,
+    AgentResponse,
+    ComparisonRecommendation,
+    PlatformResult,
+    RecommendationVerdict,
+)
 from services.platform_factory import build_general_manager, build_platform
 
 
@@ -48,13 +55,8 @@ def test_build_general_manager_uses_csv_backed_data_for_bundled_sample_player(fa
 
 def test_build_general_manager_resolves_bundled_player_identity(fake_llm_client):
     manager = build_general_manager("manchester_united", llm_client=fake_llm_client)
-    request = AgentRequest(
-        query="Should we sign Sample Striker?",
-        club_id="manchester_united",
-        context={"player": "Sample Striker"},
-    )
 
-    profile = manager._resolve_player_profile(request)
+    profile = manager._resolve_player_profile("Sample Striker")
 
     assert profile.resolved is True
     assert profile.full_name == "Sample Striker"
@@ -63,13 +65,8 @@ def test_build_general_manager_resolves_bundled_player_identity(fake_llm_client)
 
 def test_build_general_manager_reports_gap_for_unresolvable_player(fake_llm_client):
     manager = build_general_manager("manchester_united", llm_client=fake_llm_client)
-    request = AgentRequest(
-        query="Should we sign Nobody FC?",
-        club_id="manchester_united",
-        context={"player": "Nobody FC"},
-    )
 
-    profile = manager._resolve_player_profile(request)
+    profile = manager._resolve_player_profile("Nobody FC")
 
     assert profile.resolved is False
     assert any("could not be verified" in gap for gap in profile.evidence_gaps)
@@ -136,3 +133,58 @@ def test_build_platform_forwards_callbacks_and_adds_report_status(fake_llm_clien
         "Performance Analytics Agent",
         "Devil's Advocate",
     ]
+
+
+def test_build_general_manager_comparison_end_to_end(fake_llm_client):
+    manager = build_general_manager("manchester_united", llm_client=fake_llm_client)
+    request = AgentRequest(query="Compare three strikers", club_id="manchester_united")
+
+    result = manager._handle_comparison(
+        request, ["Sample Striker", "Sample Winger", "Sample Midfielder"]
+    )
+
+    assert isinstance(result, ComparisonRecommendation)
+    assert result.player_names == ["Sample Striker", "Sample Winger", "Sample Midfielder"]
+    assert len(result.players) == 3
+    assert len(result.decision_matrix) == 4
+    for criterion in result.decision_matrix:
+        assert len(criterion.ratings) == 3
+
+
+def test_platform_handle_query_skips_report_agent_for_comparisons(man_utd_config):
+    from agents.report_agent import ReportAgent
+    from agents.scout_agent import ScoutAgent
+    from models.agent_io import ComparisonOutcome, ComparisonSynthesis, PlayerNameExtraction
+    from services.platform_factory import FootballOperationsPlatform
+    from tests.test_manager_agent import SequencedLLMClient
+
+    # Only 4 responses queued: extraction + 2 specialist calls + comparison
+    # synthesis. If the Report Agent were (wrongly) invoked afterwards, it
+    # would try to pop a 5th response that doesn't exist and raise --
+    # reaching the assertions below proves it was correctly skipped.
+    client = SequencedLLMClient(
+        [
+            PlayerNameExtraction(players=["Sample Striker", "Sample Winger"]),
+            AgentResponse(agent_name="Scout Agent", summary="a", confidence=0.6),
+            AgentResponse(agent_name="Scout Agent", summary="b", confidence=0.5),
+            ComparisonSynthesis(
+                executive_summary="s",
+                outcome=ComparisonOutcome.MULTIPLE_VIABLE,
+                verdict_rationale="r",
+                confidence=0.5,
+            ),
+        ]
+    )
+    scout = ScoutAgent(client, man_utd_config)
+    manager = GeneralManagerAgent(client, man_utd_config, [scout])
+    report_agent = ReportAgent(client, man_utd_config)
+    platform = FootballOperationsPlatform(manager, report_agent)
+    request = AgentRequest(
+        query="Compare Sample Striker vs Sample Winger", club_id="manchester_united"
+    )
+
+    result = platform.handle_query(request)
+
+    assert isinstance(result, ComparisonRecommendation)
+    assert result.outcome == ComparisonOutcome.MULTIPLE_VIABLE
+    assert len(client.calls) == 4

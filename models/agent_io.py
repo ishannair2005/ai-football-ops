@@ -117,13 +117,15 @@ class PlayerProfile(BaseModel):
 class PlayerNameExtraction(BaseModel):
     """Output of the lightweight query-parsing step that runs before player
     resolution when no player name was supplied out-of-band. Deliberately
-    tiny and non-judgmental — it only decides whether a specific player is
-    named in the query, never evaluates anything about them."""
+    tiny and non-judgmental — it only decides which player(s), if any, are
+    named in the query, never evaluates anything about them. Zero names
+    means a general question; one means a single-player query; two or
+    more means the query is comparing candidates."""
 
-    player_name: str | None = Field(
+    players: list[str] = Field(
         ...,
-        description="The specific player named in the query, exactly as written, "
-        "or null if the query doesn't name an individual player.",
+        description="Every distinct player named in the query, exactly as written, "
+        "in the order mentioned. Empty if the query doesn't name an individual player.",
     )
 
 
@@ -166,6 +168,129 @@ class AgentResponse(BaseModel):
         fact (sourced from a data provider), never a stored field of its
         own so it can never drift from what was really fetched."""
         return [e for e in self.supporting_evidence if e.source == EvidenceSource.DATA_PROVIDER]
+
+
+class ComparisonOutcome(StrEnum):
+    """How decisively the comparison came out — deliberately allows honesty
+    about ties or universal rejection rather than forcing a false winner."""
+
+    CLEAR_PREFERENCE = "Clear Preference"
+    MULTIPLE_VIABLE = "Multiple Viable"
+    NONE_RECOMMENDED = "None Recommended"
+
+
+class ComparisonRatingTier(StrEnum):
+    """A quick-scan label for a decision-matrix cell, thresholded
+    deterministically from the specialist's own confidence score — never a
+    separately-judged rating that could disagree with the number next to it."""
+
+    STRONG = "Strong"
+    MODERATE = "Moderate"
+    WEAK = "Weak"
+
+
+def rating_tier_for_confidence(confidence: float) -> ComparisonRatingTier:
+    if confidence >= 0.6:
+        return ComparisonRatingTier.STRONG
+    if confidence >= 0.4:
+        return ComparisonRatingTier.MODERATE
+    return ComparisonRatingTier.WEAK
+
+
+class ComparisonSynthesis(BaseModel):
+    """What the LLM produces for the overall comparison call, on top of
+    (not instead of) the programmatically-built decision matrix."""
+
+    executive_summary: str
+    outcome: ComparisonOutcome
+    preferred_player_index: int | None = Field(
+        default=None,
+        description="0-based index into the candidate list, meaningful only when "
+        "outcome is CLEAR_PREFERENCE — never a restated name.",
+    )
+    verdict_rationale: str = Field(
+        ..., description="Why, grounded in fit for this specific club/system/budget — "
+        "not which player is objectively better."
+    )
+    confidence: float = Field(..., ge=0.0, le=1.0)
+    key_differentiators: list[str] = Field(default_factory=list)
+
+
+class ComparisonCriterionRating(BaseModel):
+    """One cell of the decision matrix: a single candidate's rating on a
+    single criterion, copied verbatim from that specialist's real
+    AgentResponse — never re-judged."""
+
+    player_name: str
+    tier: ComparisonRatingTier
+    confidence: float = Field(..., ge=0.0, le=1.0)
+    summary: str
+
+
+class ComparisonCriterion(BaseModel):
+    """One row of the decision matrix — one specialist's ratings across
+    every candidate."""
+
+    criterion_name: str
+    ratings: list[ComparisonCriterionRating] = Field(default_factory=list)
+
+
+class PlayerComparisonEntry(BaseModel):
+    """Full drill-down detail for one candidate in a comparison — the
+    complete AgentResponse from every specialist, not just the matrix
+    summary."""
+
+    player_name: str
+    responses: list[AgentResponse] = Field(default_factory=list)
+
+
+class ComparisonRecommendation(BaseModel):
+    """The Manager's output for an N-player comparison query. Exposes both
+    the final recommendation (executive_summary/outcome/preferred_player/
+    verdict_rationale) and the full reasoning process (decision_matrix,
+    players) — transparency over a bare winner."""
+
+    player_names: list[str]
+    executive_summary: str
+    outcome: ComparisonOutcome
+    preferred_player: str | None = Field(
+        default=None,
+        description="Computed programmatically from preferred_player_index + "
+        "player_names — never trusts the LLM to restate a name correctly.",
+    )
+    verdict_rationale: str
+    confidence: float = Field(..., ge=0.0, le=1.0)
+    key_differentiators: list[str] = Field(default_factory=list)
+    decision_matrix: list[ComparisonCriterion] = Field(default_factory=list)
+    players: list[PlayerComparisonEntry] = Field(default_factory=list)
+    generated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+    @classmethod
+    def from_synthesis(
+        cls,
+        synthesis: ComparisonSynthesis,
+        player_names: list[str],
+        decision_matrix: list[ComparisonCriterion],
+        players: list[PlayerComparisonEntry],
+    ) -> "ComparisonRecommendation":
+        preferred_player = None
+        if (
+            synthesis.outcome == ComparisonOutcome.CLEAR_PREFERENCE
+            and synthesis.preferred_player_index is not None
+            and 0 <= synthesis.preferred_player_index < len(player_names)
+        ):
+            preferred_player = player_names[synthesis.preferred_player_index]
+        return cls(
+            player_names=player_names,
+            executive_summary=synthesis.executive_summary,
+            outcome=synthesis.outcome,
+            preferred_player=preferred_player,
+            verdict_rationale=synthesis.verdict_rationale,
+            confidence=synthesis.confidence,
+            key_differentiators=synthesis.key_differentiators,
+            decision_matrix=decision_matrix,
+            players=players,
+        )
 
 
 class ManagerSynthesis(BaseModel):
