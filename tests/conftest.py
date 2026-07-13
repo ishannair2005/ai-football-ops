@@ -6,6 +6,7 @@ from config.club_config import ClubConfig
 from models.agent_io import (
     AgentResponse,
     ManagerSynthesis,
+    PlayerNameExtraction,
     PlayerProfile,
     RecommendationVerdict,
     ScoutingReport,
@@ -49,6 +50,8 @@ class FakeLLMClient(LLMClient):
                 "response_model": response_model,
             }
         )
+        if response_model is PlayerNameExtraction:
+            return PlayerNameExtraction(player_name=None)
         if response_model is AgentResponse:
             return AgentResponse(
                 summary="Fake specialist finding.",

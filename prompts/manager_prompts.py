@@ -48,6 +48,28 @@ Respond only via the structured tool call provided to you.
 """.strip()
 
 
+PLAYER_EXTRACTION_SYSTEM_PROMPT = """
+You are a lightweight query-parsing step for a football operations
+platform, running before any specialist analysis. Your only job is to
+decide whether a question names one specific player, and if so extract
+that name exactly as written in the query.
+
+Do not evaluate, judge, analyze, or say anything about the player. Do not
+invent a name if none is given. If the query is about a position group,
+formation, squad, or club in general with no individual named, return
+null.
+""".strip()
+
+
+def build_player_extraction_user_prompt(query: str) -> str:
+    return f"""
+Query: {query}
+
+Extract the specific player named in this query, if any, via the
+structured response tool.
+""".strip()
+
+
 def _specialist_findings_json(specialist_responses: list[AgentResponse]) -> str:
     findings = [
         {

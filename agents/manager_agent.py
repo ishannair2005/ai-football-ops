@@ -25,11 +25,14 @@ from models.agent_io import (
     ChallengeRequest,
     FinalRecommendation,
     ManagerSynthesis,
+    PlayerNameExtraction,
     PlayerProfile,
 )
 from prompts.manager_prompts import (
+    PLAYER_EXTRACTION_SYSTEM_PROMPT,
     build_manager_system_prompt,
     build_manager_user_prompt,
+    build_player_extraction_user_prompt,
     build_resolution_user_prompt,
 )
 from services.llm_client import LLMClient
@@ -96,13 +99,33 @@ class GeneralManagerAgent:
         final = self._resolve(request, specialist_responses, draft, challenge)
         return FinalRecommendation.from_synthesis(final, specialist_responses, challenge)
 
+    def _extract_player_name(
+        self, request: AgentRequest, on_status: StatusCallback | None = None
+    ) -> str | None:
+        """A player name supplied out-of-band (e.g. a UI field) always wins
+        and costs no extra call. Otherwise, parse the query itself — the
+        resolver must work off what the user actually asked, not require
+        them to duplicate the name into a separate field."""
+        explicit = request.context.get("player")
+        if explicit:
+            return explicit
+
+        _notify(on_status, "Checking whether the query names a specific player...")
+        extraction: PlayerNameExtraction = self._llm_client.generate_structured(
+            system_prompt=PLAYER_EXTRACTION_SYSTEM_PROMPT,
+            user_prompt=build_player_extraction_user_prompt(request.query),
+            response_model=PlayerNameExtraction,
+            max_tokens=256,
+        )
+        return extraction.player_name
+
     def _resolve_player_profile(
         self, request: AgentRequest, on_status: StatusCallback | None = None
     ) -> PlayerProfile | None:
         """Resolve identity and fetch stats/injury evidence exactly once for
         the query's player, if any. Every step that comes back empty is
         recorded as an explicit evidence gap rather than left silent."""
-        queried_name = request.context.get("player")
+        queried_name = self._extract_player_name(request, on_status)
         if not queried_name:
             return None
 

@@ -7,6 +7,7 @@ from models.agent_io import (
     AgentRequest,
     AgentResponse,
     ManagerSynthesis,
+    PlayerNameExtraction,
     RecommendationVerdict,
     ResolvedIdentity,
 )
@@ -30,8 +31,8 @@ def test_manager_consults_specialists_and_synthesizes(fake_llm_client, man_utd_c
     assert result.recommendation == "Fake recommendation."
     assert len(result.agent_responses) == 1
     assert result.agent_responses[0].agent_name == "Scout Agent"
-    # One call for the scout, one for the manager's synthesis.
-    assert len(fake_llm_client.calls) == 2
+    # Player-name extraction (no player field set) + scout + draft synthesis.
+    assert len(fake_llm_client.calls) == 3
 
 
 def test_manager_never_performs_specialist_analysis_itself(fake_llm_client, man_utd_config):
@@ -41,9 +42,10 @@ def test_manager_never_performs_specialist_analysis_itself(fake_llm_client, man_
     result = manager.handle_query(request)
 
     assert result.agent_responses == []
-    # Even with zero specialists, the manager still only calls the LLM
-    # for synthesis, never fabricating a specialist-style finding.
-    assert len(fake_llm_client.calls) == 1
+    # Even with zero specialists, the manager still only calls the LLM for
+    # name extraction (no player field set) and synthesis, never fabricating
+    # a specialist-style finding.
+    assert len(fake_llm_client.calls) == 2
 
 
 def test_manager_runs_devils_advocate_challenge_when_configured(fake_llm_client, man_utd_config):
@@ -57,8 +59,8 @@ def test_manager_runs_devils_advocate_challenge_when_configured(fake_llm_client,
     assert result.devils_advocate_challenge is not None
     assert result.devils_advocate_challenge.agent_name == "Devil's Advocate"
     assert result.challenge_resolution == "Fake resolution."
-    # scout + draft synthesis + challenge + resolution synthesis
-    assert len(fake_llm_client.calls) == 4
+    # extraction + scout + draft synthesis + challenge + resolution synthesis
+    assert len(fake_llm_client.calls) == 5
 
 
 def test_manager_fires_status_and_agent_response_callbacks(fake_llm_client, man_utd_config):
@@ -77,6 +79,7 @@ def test_manager_fires_status_and_agent_response_callbacks(fake_llm_client, man_
     )
 
     assert statuses == [
+        "Checking whether the query names a specific player...",
         "Scout Agent is analyzing...",
         "Drafting initial recommendation...",
         "Devil's Advocate is challenging the recommendation...",
@@ -94,6 +97,49 @@ def test_manager_handle_query_works_without_callbacks(fake_llm_client, man_utd_c
     result = manager.handle_query(request)
 
     assert result.agent_responses[0].agent_name == "Scout Agent"
+
+
+def test_extract_player_name_prefers_explicit_context_without_calling_llm(fake_llm_client, man_utd_config):
+    manager = GeneralManagerAgent(fake_llm_client, man_utd_config, [])
+    request = AgentRequest(
+        query="Should we sign Tielemans?",
+        club_id="manchester_united",
+        context={"player": "Tielemans"},
+    )
+
+    name = manager._extract_player_name(request)
+
+    assert name == "Tielemans"
+    assert fake_llm_client.calls == []
+
+
+def test_extract_player_name_parses_query_when_field_left_blank(man_utd_config):
+    client = SequencedLLMClient([PlayerNameExtraction(player_name="Tielemans")])
+    manager = GeneralManagerAgent(client, man_utd_config, [])
+    request = AgentRequest(query="Should Manchester United sign Tielemans?", club_id="manchester_united")
+
+    name = manager._extract_player_name(request)
+
+    assert name == "Tielemans"
+    assert len(client.calls) == 1
+
+
+def test_resolve_player_profile_uses_name_extracted_from_query(man_utd_config):
+    identity = ResolvedIdentity(
+        full_name="Youri Tielemans", club="Aston Villa", as_of_date="2026-07-13", source="test"
+    )
+    identity_gateway = PlayerIdentityGateway(
+        providers=[MockPlayerResolver(records={"tielemans": identity})]
+    )
+    client = SequencedLLMClient([PlayerNameExtraction(player_name="Tielemans")])
+    manager = GeneralManagerAgent(client, man_utd_config, [], identity_gateway=identity_gateway)
+    request = AgentRequest(query="Should Manchester United sign Tielemans?", club_id="manchester_united")
+
+    profile = manager._resolve_player_profile(request)
+
+    assert profile.resolved is True
+    assert profile.full_name == "Youri Tielemans"
+    assert profile.club == "Aston Villa"
 
 
 def test_resolve_player_profile_returns_none_when_no_player_named(fake_llm_client, man_utd_config):
@@ -252,7 +298,10 @@ def test_manager_uses_resolution_synthesis_not_draft(man_utd_config):
         next_steps=["Final step."],
         challenge_resolution="Partially accepted the challenge; lowered confidence and added a risk.",
     )
-    client = SequencedLLMClient([specialist_response, draft, challenge_response, final_synthesis])
+    extraction = PlayerNameExtraction(player_name=None)
+    client = SequencedLLMClient(
+        [extraction, specialist_response, draft, challenge_response, final_synthesis]
+    )
     scout = ScoutAgent(client, man_utd_config)
     devils_advocate = DevilsAdvocateAgent(client, man_utd_config)
     manager = GeneralManagerAgent(client, man_utd_config, [scout], devils_advocate)
@@ -268,4 +317,4 @@ def test_manager_uses_resolution_synthesis_not_draft(man_utd_config):
         "Partially accepted the challenge; lowered confidence and added a risk."
     )
     assert result.devils_advocate_challenge.summary == "Strong opposing argument."
-    assert len(client.calls) == 4
+    assert len(client.calls) == 5

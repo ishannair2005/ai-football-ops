@@ -114,6 +114,19 @@ class PlayerProfile(BaseModel):
     evidence_gaps: list[str] = Field(default_factory=list)
 
 
+class PlayerNameExtraction(BaseModel):
+    """Output of the lightweight query-parsing step that runs before player
+    resolution when no player name was supplied out-of-band. Deliberately
+    tiny and non-judgmental — it only decides whether a specific player is
+    named in the query, never evaluates anything about them."""
+
+    player_name: str | None = Field(
+        ...,
+        description="The specific player named in the query, exactly as written, "
+        "or null if the query doesn't name an individual player.",
+    )
+
+
 class AgentRequest(BaseModel):
     """The task handed to a specialist agent by the General Manager."""
 

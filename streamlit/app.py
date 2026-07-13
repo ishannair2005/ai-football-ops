@@ -77,11 +77,11 @@ query = st.text_area(
 )
 
 player_name = st.text_input(
-    "Player name (optional)",
+    "Player name (optional override)",
     placeholder="e.g. Sample Striker",
-    help="If the question is about a specific player, name them here so "
-    "specialists can look up data-provider records instead of relying on "
-    "general knowledge alone. Try 'Sample Striker' against the bundled demo data.",
+    help="The platform automatically detects a named player in your question "
+    "above, so this is only needed to override that (e.g. a nickname it might "
+    "not resolve). Try asking about 'Sample Striker' directly in the question box.",
 )
 
 submitted = st.button("Get Recommendation", type="primary")
