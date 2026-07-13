@@ -79,17 +79,39 @@ class ResolvedIdentity(BaseModel):
 
     full_name: str
     club: str | None = None
+    position: str | None = None
+    nationality: str | None = None
+    age: int | None = None
+    competition: str | None = None
     player_ids: dict[str, str] = Field(
         default_factory=dict,
         description=(
-            "External IDs (e.g. fbref/fotmob/transfermarkt) when a resolver can supply "
-            "them. Empty today — we have no real ID-issuing provider, and fabricating "
-            "plausible-looking IDs would be exactly the kind of invention this exists "
-            "to prevent."
+            "External IDs (e.g. sportsapipro/fbref/fotmob/transfermarkt) when a "
+            "resolver can supply them. A CSV/mock resolver leaves this empty rather "
+            "than fabricating a plausible-looking ID."
         ),
     )
     as_of_date: str
     source: str
+
+
+class DataQualityStatus(StrEnum):
+    """How trustworthy one domain of a :class:`PlayerProfile` is, at a glance."""
+
+    AVAILABLE = "Available"
+    UNAVAILABLE = "Unavailable"
+    OUTDATED = "Outdated"
+    PROVIDER_ERROR = "Provider Error"
+
+
+class DataQualityEntry(BaseModel):
+    """One row of the Data Quality summary — computed mechanically by the
+    Manager during profile resolution (never LLM-judged), so it can never
+    disagree with the evidence it's describing."""
+
+    domain: str
+    status: DataQualityStatus
+    detail: str | None = None
 
 
 class PlayerProfile(BaseModel):
@@ -100,18 +122,37 @@ class PlayerProfile(BaseModel):
     ``evidence_gaps`` records every step that came back empty (identity
     not resolved, no stats found, no injury record found) so agents state
     the gap explicitly instead of reasoning around a silent hole.
+    ``data_quality`` is the same information condensed into one at-a-glance
+    row per domain, shown once near the top of a report so specialists
+    don't each have to restate it.
     """
 
     queried_name: str
     resolved: bool
     full_name: str | None = None
     club: str | None = None
+    position: str | None = None
+    nationality: str | None = None
+    age: int | None = None
+    competition: str | None = None
     player_ids: dict[str, str] = Field(default_factory=dict)
     identity_as_of: str | None = None
     identity_source: str | None = None
     stats_evidence: list[Evidence] = Field(default_factory=list)
     injury_evidence: list[Evidence] = Field(default_factory=list)
+    transfer_evidence: list[Evidence] = Field(default_factory=list)
     evidence_gaps: list[str] = Field(default_factory=list)
+    data_quality: list[DataQualityEntry] = Field(default_factory=list)
+
+    @property
+    def overall_data_quality_score(self) -> float:
+        """Fraction of domains rated Available — computed from
+        ``data_quality`` itself so it can never drift from the entries
+        above it. ``0.0`` when no entries exist yet (profile not resolved)."""
+        if not self.data_quality:
+            return 0.0
+        available = sum(1 for entry in self.data_quality if entry.status == DataQualityStatus.AVAILABLE)
+        return available / len(self.data_quality)
 
 
 class PlayerNameExtraction(BaseModel):
@@ -358,6 +399,11 @@ class FinalRecommendation(BaseModel):
     challenge_resolution: str | None = None
     agent_responses: list[AgentResponse] = Field(default_factory=list)
     devils_advocate_challenge: AgentResponse | None = None
+    data_quality: list[DataQualityEntry] = Field(
+        default_factory=list,
+        description="One row per domain, copied straight from the resolved PlayerProfile "
+        "so specialists don't each have to restate the same gap.",
+    )
     generated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     @classmethod
@@ -366,6 +412,7 @@ class FinalRecommendation(BaseModel):
         synthesis: ManagerSynthesis,
         agent_responses: list[AgentResponse],
         devils_advocate_challenge: AgentResponse | None = None,
+        data_quality: list[DataQualityEntry] | None = None,
     ) -> "FinalRecommendation":
         return cls(
             executive_summary=synthesis.executive_summary,
@@ -377,6 +424,7 @@ class FinalRecommendation(BaseModel):
             challenge_resolution=synthesis.challenge_resolution,
             agent_responses=agent_responses,
             devils_advocate_challenge=devils_advocate_challenge,
+            data_quality=data_quality or [],
         )
 
 
@@ -407,6 +455,11 @@ class ScoutingReport(BaseModel):
         default_factory=dict,
         description="Earliest as-of date per EvidenceDomain label, e.g. "
         "{'Player statistics': '2026-07-10', 'Injury data': '2026-07-08'}.",
+    )
+    data_quality: list[DataQualityEntry] = Field(
+        default_factory=list,
+        description="Copied straight from the recommendation, shown once near the top "
+        "of the report instead of every specialist restating the same gap.",
     )
     generated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 

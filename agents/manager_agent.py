@@ -20,6 +20,7 @@ reconciles, and (when challenged) revises.
 from __future__ import annotations
 
 import logging
+from datetime import date
 from typing import Callable
 
 from agents.base_agent import BaseAgent
@@ -33,6 +34,10 @@ from models.agent_io import (
     ComparisonCriterionRating,
     ComparisonRecommendation,
     ComparisonSynthesis,
+    DataQualityEntry,
+    DataQualityStatus,
+    Evidence,
+    EvidenceSource,
     FinalRecommendation,
     ManagerSynthesis,
     PlayerComparisonEntry,
@@ -54,6 +59,7 @@ from tools.data_gateway import PlayerDataGateway
 from tools.injury_gateway import InjuryGateway
 from tools.news_gateway import NewsGateway
 from tools.player_identity_gateway import PlayerIdentityGateway
+from tools.transfer_gateway import TransferGateway
 
 logger = logging.getLogger(__name__)
 
@@ -64,6 +70,42 @@ AgentResponseCallback = Callable[[AgentResponse], None]
 def _notify(callback: StatusCallback | None, message: str) -> None:
     if callback is not None:
         callback(message)
+
+
+def _is_outdated(evidence: list[Evidence], max_age_days: int) -> bool:
+    """True if every dated item in ``evidence`` is older than
+    ``max_age_days``. Evidence with no ``as_of_date`` can't be judged
+    stale, so it doesn't count against freshness."""
+    dates = [e.as_of_date for e in evidence if e.as_of_date]
+    if not dates:
+        return False
+    try:
+        freshest = max(date.fromisoformat(d) for d in dates)
+    except ValueError:
+        return False
+    return (date.today() - freshest).days > max_age_days
+
+
+def _data_quality_entry(
+    domain: str,
+    evidence: list[Evidence],
+    last_error: str | None,
+    max_age_days: int | None = None,
+) -> DataQualityEntry:
+    """Computed mechanically from real evidence/gateway state — never
+    LLM-judged — so a Data Quality row can never disagree with the
+    evidence it summarizes."""
+    if not evidence:
+        if last_error:
+            return DataQualityEntry(domain=domain, status=DataQualityStatus.PROVIDER_ERROR, detail=last_error)
+        return DataQualityEntry(domain=domain, status=DataQualityStatus.UNAVAILABLE)
+    if max_age_days is not None and _is_outdated(evidence, max_age_days):
+        return DataQualityEntry(
+            domain=domain,
+            status=DataQualityStatus.OUTDATED,
+            detail=f"Latest evidence is more than {max_age_days} days old.",
+        )
+    return DataQualityEntry(domain=domain, status=DataQualityStatus.AVAILABLE)
 
 
 class GeneralManagerAgent:
@@ -77,6 +119,7 @@ class GeneralManagerAgent:
         data_gateway: PlayerDataGateway | None = None,
         injury_gateway: InjuryGateway | None = None,
         news_gateway: NewsGateway | None = None,
+        transfer_gateway: TransferGateway | None = None,
     ) -> None:
         self._llm_client = llm_client
         self._club_config = club_config
@@ -86,6 +129,7 @@ class GeneralManagerAgent:
         self._data_gateway = data_gateway
         self._injury_gateway = injury_gateway
         self._news_gateway = news_gateway
+        self._transfer_gateway = transfer_gateway
 
     def handle_query(
         self,
@@ -101,22 +145,32 @@ class GeneralManagerAgent:
         profile = self._resolve_player_profile(player_names[0], on_status) if player_names else None
         request = request.model_copy(update={"player_profile": profile})
 
+        news_subject = (profile.full_name if profile and profile.resolved else None) or request.club_id
+        news_evidence = self._news_gateway.fetch_news_evidence(news_subject) if self._news_gateway else []
+        if profile is not None:
+            profile.data_quality = profile.data_quality + [
+                _data_quality_entry("News", news_evidence, None, max_age_days=14)
+            ]
+        data_quality = profile.data_quality if profile is not None else []
+
         specialist_responses = self._consult_specialists(request, on_status, on_agent_response)
 
         _notify(on_status, "Drafting initial recommendation...")
         draft = self._synthesize(request, specialist_responses)
 
         if self._devils_advocate is None:
-            return FinalRecommendation.from_synthesis(draft, specialist_responses)
+            return FinalRecommendation.from_synthesis(draft, specialist_responses, data_quality=data_quality)
 
         _notify(on_status, "Devil's Advocate is challenging the recommendation...")
-        challenge = self._challenge(request, draft, specialist_responses, profile)
+        challenge = self._challenge(request, draft, specialist_responses, profile, news_evidence, news_subject)
         if on_agent_response is not None:
             on_agent_response(challenge)
 
         _notify(on_status, "Finalizing the recommendation...")
         final = self._resolve(request, specialist_responses, draft, challenge)
-        return FinalRecommendation.from_synthesis(final, specialist_responses, challenge)
+        return FinalRecommendation.from_synthesis(
+            final, specialist_responses, challenge, data_quality=data_quality
+        )
 
     def _extract_player_names(
         self, request: AgentRequest, on_status: StatusCallback | None = None
@@ -173,17 +227,61 @@ class GeneralManagerAgent:
         if not injury_evidence:
             gaps.append("Current injury/availability status unavailable from configured data providers.")
 
+        transfer_evidence = (
+            self._transfer_gateway.fetch_transfer_evidence(canonical_name)
+            if self._transfer_gateway
+            else []
+        )
+        if not transfer_evidence:
+            gaps.append("Transfer fee, wage, and contract details unavailable from configured data providers.")
+
+        identity_evidence = (
+            [Evidence(source=EvidenceSource.DATA_PROVIDER, description="identity resolved", as_of_date=identity.as_of_date)]
+            if identity
+            else []
+        )
+        data_quality = [
+            _data_quality_entry(
+                "Identity",
+                identity_evidence,
+                getattr(self._identity_gateway, "last_error", None) if self._identity_gateway else None,
+            ),
+            _data_quality_entry(
+                "Statistics",
+                stats_evidence,
+                getattr(self._data_gateway, "last_error", None) if self._data_gateway else None,
+                max_age_days=180,
+            ),
+            _data_quality_entry(
+                "Injuries",
+                injury_evidence,
+                None,
+                max_age_days=14,
+            ),
+            _data_quality_entry(
+                "Transfer",
+                transfer_evidence,
+                getattr(self._transfer_gateway, "last_error", None) if self._transfer_gateway else None,
+            ),
+        ]
+
         return PlayerProfile(
             queried_name=queried_name,
             resolved=identity is not None,
             full_name=identity.full_name if identity else None,
             club=identity.club if identity else None,
+            position=identity.position if identity else None,
+            nationality=identity.nationality if identity else None,
+            age=identity.age if identity else None,
+            competition=identity.competition if identity else None,
             player_ids=identity.player_ids if identity else {},
             identity_as_of=identity.as_of_date if identity else None,
             identity_source=identity.source if identity else None,
             stats_evidence=stats_evidence,
             injury_evidence=injury_evidence,
+            transfer_evidence=transfer_evidence,
             evidence_gaps=gaps,
+            data_quality=data_quality,
         )
 
     def _consult_specialists(
@@ -217,12 +315,10 @@ class GeneralManagerAgent:
         draft: ManagerSynthesis,
         specialist_responses: list[AgentResponse],
         profile: PlayerProfile | None,
+        news_evidence: list[Evidence],
+        news_subject: str,
     ) -> AgentResponse:
         logger.info("General Manager requesting a Devil's Advocate challenge")
-        subject = (profile.full_name if profile and profile.resolved else None) or request.club_id
-        news_evidence = (
-            self._news_gateway.fetch_news_evidence(subject) if self._news_gateway else []
-        )
         challenge_request = ChallengeRequest(
             original_query=request.query,
             club_id=request.club_id,
@@ -230,7 +326,7 @@ class GeneralManagerAgent:
             specialist_responses=specialist_responses,
             player_profile=profile,
             news_evidence=news_evidence,
-            news_subject=subject,
+            news_subject=news_subject,
         )
         return self._devils_advocate.analyze(challenge_request)
 

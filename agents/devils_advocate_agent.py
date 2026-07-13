@@ -6,7 +6,7 @@ import json
 
 from agents.base_agent import BaseAgent
 from models.agent_io import AgentResponse, ChallengeRequest
-from prompts.data_prompts import build_identity_section, build_news_section
+from prompts.data_prompts import build_data_quality_section, build_identity_section, build_news_section
 
 ROLE_DESCRIPTION = """
 You are the club's Devil's Advocate. You are given the General Manager's
@@ -63,6 +63,8 @@ Draft recommendation from the General Manager (JSON):
 
 Specialist findings underpinning that draft (JSON):
 {json.dumps(specialist_findings, indent=2)}
+
+{build_data_quality_section(request.player_profile)}
 
 {build_identity_section(request.player_profile)}
 

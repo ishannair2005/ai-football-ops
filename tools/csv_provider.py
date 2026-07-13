@@ -17,7 +17,20 @@ from models.domain import PlayerStatsRecord
 
 logger = logging.getLogger(__name__)
 
-_INT_FIELDS = ("age", "appearances", "goals", "assists")
+_INT_FIELDS = (
+    "age",
+    "appearances",
+    "goals",
+    "assists",
+    "minutes",
+    "yellow_cards",
+    "red_cards",
+    "tackles",
+    "interceptions",
+    "progressive_carries",
+    "progressive_passes",
+)
+_FLOAT_FIELDS = ("pass_accuracy",)
 
 
 class CSVPlayerDataProvider:
@@ -45,6 +58,9 @@ class CSVPlayerDataProvider:
                     for field in _INT_FIELDS:
                         raw = parsed.get(field)
                         parsed[field] = int(raw) if raw not in (None, "") else None
+                    for field in _FLOAT_FIELDS:
+                        raw = parsed.get(field)
+                        parsed[field] = float(raw) if raw not in (None, "") else None
                     record = PlayerStatsRecord(**parsed, source=self._csv_path.name)
                 except (TypeError, ValueError) as exc:
                     logger.warning(

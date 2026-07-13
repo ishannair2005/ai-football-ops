@@ -23,6 +23,8 @@ class Settings(BaseSettings):
     anthropic_api_key: str = ""
     anthropic_model: str = "claude-sonnet-5"
 
+    sportsapipro_api_key: str = ""
+
     active_club: str = "manchester_united"
 
     log_level: str = "INFO"

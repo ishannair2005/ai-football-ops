@@ -4,7 +4,12 @@ from __future__ import annotations
 
 from agents.base_agent import BaseAgent
 from models.agent_io import AgentRequest, AgentResponse
-from prompts.data_prompts import build_identity_section, build_injury_section, build_player_data_section
+from prompts.data_prompts import (
+    build_data_quality_section,
+    build_identity_section,
+    build_injury_section,
+    build_player_data_section,
+)
 
 ROLE_DESCRIPTION = """
 You are the club's chief scout. For any player under discussion, evaluate:
@@ -42,6 +47,8 @@ Scouting task: {request.query}
 
 Additional context:
 {context_lines}
+
+{build_data_quality_section(profile)}
 
 {build_identity_section(profile)}
 

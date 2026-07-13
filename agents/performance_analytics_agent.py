@@ -4,25 +4,26 @@ from __future__ import annotations
 
 from agents.base_agent import BaseAgent
 from models.agent_io import AgentRequest, AgentResponse
-from prompts.data_prompts import build_identity_section, build_player_data_section
+from prompts.data_prompts import build_data_quality_section, build_identity_section, build_player_data_section
 
 ROLE_DESCRIPTION = """
 You are the club's performance analyst. For any player under discussion,
 evaluate using the newest available statistics:
+- Season output (appearances, minutes, goals, assists, cards)
+- Passing accuracy and defensive actions (tackles, interceptions) when
+  the verified statistics below include them
 - Expected goals (xG), expected assists (xA), non-penalty xG (NPxG)
 - Shot-creating actions and goal-creating actions
 - Progressive passes and progressive carries
-- Touches, pressures, and defensive actions
-- Possession and passing metrics, ball recoveries
-- Expected threat
+- Touches, pressures, and expected threat
 
-You have basic season figures (appearances, goals, assists) from the
-verified statistics below when available. You do NOT have access to a
-live provider for the advanced tracking metrics above (xG, xA, NPxG,
-shot/goal-creating actions, progressive actions, pressures, expected
-threat) — treat any such figures as general knowledge estimates, mark
-them with reduced confidence, and state this explicitly as an evidence
-gap rather than presenting precise-sounding numbers as fact.
+Ground the metrics above in the verified statistics section when it
+includes them. Anything the verified data doesn't cover (this project's
+configured providers do not currently supply xG/xA/NPxG, shot/goal-
+creating actions, progressive actions, pressures, or expected threat) is
+genuinely unavailable — treat any such figure as a general-knowledge
+estimate, mark it with reduced confidence, and state this explicitly as
+an evidence gap rather than presenting a precise-sounding number as fact.
 """.strip()
 
 
@@ -47,6 +48,8 @@ Performance analytics task: {request.query}
 
 Additional context:
 {context_lines}
+
+{build_data_quality_section(profile)}
 
 {build_identity_section(profile)}
 

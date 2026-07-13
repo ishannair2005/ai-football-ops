@@ -46,6 +46,12 @@ speculation:
   estimates), note the disagreement rather than presenting one figure as
   certain.
 - Always separate confirmed fact from speculation or rumour.
+- Each data section below states whether it's `Available`, `Unavailable`,
+  `Outdated`, or came back as a `Provider Error` — treat that label as
+  read on that domain. If a domain relevant to your analysis is
+  `Outdated` or `Provider Error`, your confidence should reflect that
+  explicitly (it's a different situation from a clean `Unavailable`: the
+  data exists but is stale, or a live source is currently broken).
 """.strip()
 
 

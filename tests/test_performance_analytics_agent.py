@@ -24,7 +24,7 @@ def test_performance_analytics_agent_system_prompt_flags_advanced_metric_gap(
 
     assert "xG" in prompt
     assert "do not" in prompt.lower()
-    assert "advanced tracking metrics" in prompt.lower()
+    assert "genuinely unavailable" in prompt.lower()
 
 
 def test_performance_analytics_agent_includes_fetched_evidence_when_available(

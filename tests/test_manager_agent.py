@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from agents.devils_advocate_agent import DevilsAdvocateAgent
-from agents.manager_agent import GeneralManagerAgent
+from agents.manager_agent import GeneralManagerAgent, _data_quality_entry, _is_outdated
 from agents.scout_agent import ScoutAgent
 from agents.tactical_agent import TacticalAgent
 from models.agent_io import (
@@ -11,20 +11,24 @@ from models.agent_io import (
     ComparisonRatingTier,
     ComparisonRecommendation,
     ComparisonSynthesis,
+    DataQualityStatus,
+    Evidence,
     ManagerSynthesis,
     PlayerNameExtraction,
     RecommendationVerdict,
     ResolvedIdentity,
     rating_tier_for_confidence,
 )
-from models.domain import InjuryRecord, PlayerStatsRecord
+from models.domain import InjuryRecord, PlayerStatsRecord, TransferRecord
 from services.llm_client import LLMClient
 from tools.data_gateway import PlayerDataGateway
 from tools.injury_gateway import InjuryGateway
 from tools.mock_injury_provider import MockInjuryProvider
 from tools.mock_player_resolver import MockPlayerResolver
 from tools.mock_provider import MockPlayerDataProvider
+from tools.mock_transfer_provider import MockTransferProvider
 from tools.player_identity_gateway import PlayerIdentityGateway
+from tools.transfer_gateway import TransferGateway
 
 
 def test_manager_consults_specialists_and_synthesizes(fake_llm_client, man_utd_config):
@@ -170,6 +174,13 @@ def test_resolve_player_profile_records_gaps_when_nothing_configured(fake_llm_cl
     assert any("could not be verified" in gap for gap in profile.evidence_gaps)
     assert any("statistics unavailable" in gap for gap in profile.evidence_gaps)
     assert any("injury" in gap.lower() for gap in profile.evidence_gaps)
+    assert {entry.domain: entry.status for entry in profile.data_quality} == {
+        "Identity": DataQualityStatus.UNAVAILABLE,
+        "Statistics": DataQualityStatus.UNAVAILABLE,
+        "Injuries": DataQualityStatus.UNAVAILABLE,
+        "Transfer": DataQualityStatus.UNAVAILABLE,
+    }
+    assert profile.overall_data_quality_score == 0.0
 
 
 def test_resolve_player_profile_populates_verified_data_when_resolved(fake_llm_client, man_utd_config):
@@ -199,6 +210,15 @@ def test_resolve_player_profile_populates_verified_data_when_resolved(fake_llm_c
     injury_gateway = InjuryGateway(
         providers=[MockInjuryProvider(records={"sample striker": injury_record})]
     )
+    transfer_record = TransferRecord(
+        player="Sample Striker",
+        transfer_fee="£50m",
+        as_of_date="2025-05-25",
+        source="test",
+    )
+    transfer_gateway = TransferGateway(
+        providers=[MockTransferProvider(records={"sample striker": transfer_record})]
+    )
     manager = GeneralManagerAgent(
         fake_llm_client,
         man_utd_config,
@@ -206,6 +226,7 @@ def test_resolve_player_profile_populates_verified_data_when_resolved(fake_llm_c
         identity_gateway=identity_gateway,
         data_gateway=data_gateway,
         injury_gateway=injury_gateway,
+        transfer_gateway=transfer_gateway,
     )
     profile = manager._resolve_player_profile("Sample Striker")
 
@@ -214,7 +235,14 @@ def test_resolve_player_profile_populates_verified_data_when_resolved(fake_llm_c
     assert profile.club == "Manchester United"
     assert len(profile.stats_evidence) == 1
     assert len(profile.injury_evidence) == 1
+    assert len(profile.transfer_evidence) == 1
     assert profile.evidence_gaps == []
+    # Every domain found real evidence — status is AVAILABLE or (since this
+    # fixture uses a fixed past date) OUTDATED, never UNAVAILABLE/PROVIDER_ERROR.
+    assert all(
+        entry.status in (DataQualityStatus.AVAILABLE, DataQualityStatus.OUTDATED)
+        for entry in profile.data_quality
+    )
 
 
 def test_manager_threads_player_profile_to_specialists(fake_llm_client, man_utd_config):
@@ -428,3 +456,74 @@ def test_handle_query_routes_to_comparison_when_two_players_extracted(man_utd_co
     assert isinstance(result, ComparisonRecommendation)
     assert result.preferred_player == "Sample Striker"
     assert result.outcome == ComparisonOutcome.CLEAR_PREFERENCE
+
+
+def _evidence(as_of_date: str) -> Evidence:
+    return Evidence(source="data_provider", description="x", as_of_date=as_of_date)
+
+
+def test_is_outdated_true_when_all_dates_older_than_threshold():
+    evidence = [_evidence("2020-01-01")]
+
+    assert _is_outdated(evidence, max_age_days=30) is True
+
+
+def test_is_outdated_false_when_a_date_is_within_threshold():
+    from datetime import date
+
+    recent = date.today().isoformat()
+    evidence = [_evidence("2020-01-01"), _evidence(recent)]
+
+    assert _is_outdated(evidence, max_age_days=30) is False
+
+
+def test_is_outdated_false_when_no_dated_evidence():
+    assert _is_outdated([], max_age_days=30) is False
+
+
+def test_data_quality_entry_unavailable_when_no_evidence_and_no_error():
+    entry = _data_quality_entry("Statistics", [], None)
+
+    assert entry.status == DataQualityStatus.UNAVAILABLE
+
+
+def test_data_quality_entry_provider_error_when_no_evidence_but_error_reported():
+    entry = _data_quality_entry("Identity", [], "network timeout")
+
+    assert entry.status == DataQualityStatus.PROVIDER_ERROR
+    assert entry.detail == "network timeout"
+
+
+def test_data_quality_entry_available_when_evidence_present():
+    entry = _data_quality_entry("Injuries", [_evidence("2025-01-01")], None)
+
+    assert entry.status == DataQualityStatus.AVAILABLE
+
+
+def test_data_quality_entry_outdated_when_evidence_stale():
+    entry = _data_quality_entry("Statistics", [_evidence("2020-01-01")], None, max_age_days=30)
+
+    assert entry.status == DataQualityStatus.OUTDATED
+
+
+def test_resolve_player_profile_reports_provider_error_for_identity():
+    class ErroringResolver:
+        def resolve(self, name: str):
+            return None
+
+    from tools.player_identity_gateway import PlayerIdentityGateway
+
+    identity_gateway = PlayerIdentityGateway(providers=[])
+    # Force a provider-level error to be recorded on the gateway, exactly as
+    # a live SportsAPIPro provider would when the API errors rather than
+    # simply having no record.
+    identity_gateway._providers = [ErroringResolver()]
+    identity_gateway._providers[0].last_error = "boom"
+
+    manager = GeneralManagerAgent(
+        llm_client=None, club_config=None, specialist_agents=[], identity_gateway=identity_gateway
+    )
+    profile = manager._resolve_player_profile("Anyone")
+
+    identity_entry = next(e for e in profile.data_quality if e.domain == "Identity")
+    assert identity_entry.status == DataQualityStatus.PROVIDER_ERROR

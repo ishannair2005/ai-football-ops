@@ -23,37 +23,54 @@ from tools.csv_injury_provider import CSVInjuryProvider
 from tools.csv_news_provider import CSVNewsProvider
 from tools.csv_player_resolver import CSVPlayerResolver
 from tools.csv_provider import CSVPlayerDataProvider
+from tools.csv_transfer_provider import CSVTransferProvider
 from tools.data_gateway import PlayerDataGateway
 from tools.injury_gateway import InjuryGateway
 from tools.mock_injury_provider import MockInjuryProvider
 from tools.mock_news_provider import MockNewsProvider
 from tools.mock_player_resolver import MockPlayerResolver
 from tools.mock_provider import MockPlayerDataProvider
+from tools.mock_transfer_provider import MockTransferProvider
 from tools.news_gateway import NewsGateway
 from tools.player_identity_gateway import PlayerIdentityGateway
+from tools.sportsapipro_identity_provider import SportsAPIProIdentityProvider
+from tools.sportsapipro_stats_provider import SportsAPIProStatsProvider
+from tools.sportsapipro_transfer_provider import SportsAPIProTransferProvider
+from tools.transfer_gateway import TransferGateway
 
 
 def _build_identity_gateway() -> PlayerIdentityGateway:
+    settings = get_settings()
     csv_path = DATA_DIR / "player_identity" / "sample_identities.csv"
-    return PlayerIdentityGateway(
-        providers=[
-            CSVPlayerResolver(csv_path),
-            MockPlayerResolver(),
-        ]
-    )
+    # Live source first when a key is configured, so it wins over the
+    # bundled fixtures for any player it actually knows about; CSV/mock
+    # remain the fallback exactly as before when it's unset or misses.
+    providers = []
+    if settings.sportsapipro_api_key:
+        providers.append(SportsAPIProIdentityProvider(settings.sportsapipro_api_key))
+    providers += [
+        CSVPlayerResolver(csv_path),
+        MockPlayerResolver(),
+    ]
+    return PlayerIdentityGateway(providers=providers)
 
 
 def _build_player_data_gateway() -> PlayerDataGateway:
-    # CSV first (real, swappable export), Mock last (always has a demo
-    # record so the pipeline is never entirely empty). Add further
-    # providers here — agents never need to change when this list does.
+    # Live source first when configured (queried alongside the rest, not
+    # instead of them — the gateway already surfaces disagreement between
+    # sources rather than silently picking one). CSV next (real, swappable
+    # export), Mock last (always has a demo record so the pipeline is
+    # never entirely empty).
+    settings = get_settings()
     csv_path = DATA_DIR / "player_stats" / "sample_players.csv"
-    return PlayerDataGateway(
-        providers=[
-            CSVPlayerDataProvider(csv_path),
-            MockPlayerDataProvider(),
-        ]
-    )
+    providers = []
+    if settings.sportsapipro_api_key:
+        providers.append(SportsAPIProStatsProvider(settings.sportsapipro_api_key))
+    providers += [
+        CSVPlayerDataProvider(csv_path),
+        MockPlayerDataProvider(),
+    ]
+    return PlayerDataGateway(providers=providers)
 
 
 def _build_injury_gateway() -> InjuryGateway:
@@ -76,6 +93,19 @@ def _build_news_gateway() -> NewsGateway:
     )
 
 
+def _build_transfer_gateway() -> TransferGateway:
+    settings = get_settings()
+    csv_path = DATA_DIR / "transfers" / "sample_transfers.csv"
+    providers = []
+    if settings.sportsapipro_api_key:
+        providers.append(SportsAPIProTransferProvider(settings.sportsapipro_api_key))
+    providers += [
+        CSVTransferProvider(csv_path),
+        MockTransferProvider(),
+    ]
+    return TransferGateway(providers=providers)
+
+
 def build_general_manager(
     club_id: str | None = None, llm_client: LLMClient | None = None
 ) -> GeneralManagerAgent:
@@ -91,6 +121,7 @@ def build_general_manager(
     data_gateway = _build_player_data_gateway()
     injury_gateway = _build_injury_gateway()
     news_gateway = _build_news_gateway()
+    transfer_gateway = _build_transfer_gateway()
 
     # Additional specialists register here as they're built in later phases.
     specialists = [
@@ -109,6 +140,7 @@ def build_general_manager(
         data_gateway=data_gateway,
         injury_gateway=injury_gateway,
         news_gateway=news_gateway,
+        transfer_gateway=transfer_gateway,
     )
 
 

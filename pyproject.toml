@@ -10,6 +10,7 @@ dependencies = [
     "python-dotenv>=1.0",
     "pyyaml>=6.0",
     "streamlit>=1.36",
+    "requests>=2.32",
 ]
 
 [project.optional-dependencies]

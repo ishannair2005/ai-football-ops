@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from agents.base_agent import BaseAgent
 from models.agent_io import AgentRequest, AgentResponse
-from prompts.data_prompts import build_identity_section
+from prompts.data_prompts import build_data_quality_section, build_identity_section
 
 ROLE_DESCRIPTION = """
 You are the club's tactical analyst. For any player, position group, or
@@ -46,6 +46,8 @@ Tactical task: {request.query}
 
 Additional context:
 {context_lines}
+
+{build_data_quality_section(request.player_profile)}
 
 {build_identity_section(request.player_profile)}
 

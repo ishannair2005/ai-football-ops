@@ -39,6 +39,7 @@ from models.agent_io import (
     AgentResponse,
     ComparisonOutcome,
     ComparisonRecommendation,
+    DataQualityStatus,
     PlatformResult,
     RecommendationVerdict,
 )
@@ -73,6 +74,32 @@ SPECIALIST_ICONS = {
     "Performance Analytics Agent": "📊",
     "Devil's Advocate": "🥊",
 }
+
+DATA_QUALITY_ICONS = {
+    DataQualityStatus.AVAILABLE: "🟢",
+    DataQualityStatus.OUTDATED: "🟡",
+    DataQualityStatus.UNAVAILABLE: "⚪",
+    DataQualityStatus.PROVIDER_ERROR: "🔴",
+}
+
+
+def render_data_quality(entries: list) -> None:
+    """Shown once, near the top of a report, so specialists below don't
+    each have to restate the same "X is unavailable" disclosure."""
+    st.subheader("Data Quality")
+    if not entries:
+        st.caption("No player named in this query — data quality summary not applicable.")
+        return
+    available = sum(1 for e in entries if e.status == DataQualityStatus.AVAILABLE)
+    rows = [
+        {"Domain": e.domain, "Status": f"{DATA_QUALITY_ICONS.get(e.status, '')} {e.status.value}"}
+        for e in entries
+    ]
+    col1, col2 = st.columns([3, 1])
+    with col1:
+        st.dataframe(rows, use_container_width=True, hide_index=True)
+    with col2:
+        st.metric("Overall quality", f"{available}/{len(entries)} available")
 
 st.title("AI Football Operations Platform")
 st.caption(f"Active club: {settings.active_club.replace('_', ' ').title()}")
@@ -189,6 +216,8 @@ if submitted:
 
                 st.header("Executive Summary")
                 st.write(report.executive_summary)
+
+                render_data_quality(report.data_quality)
 
                 col1, col2 = st.columns([3, 1])
                 with col1:

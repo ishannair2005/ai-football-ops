@@ -36,6 +36,37 @@ class PlayerStatsRecord(BaseModel):
     appearances: int | None = None
     goals: int | None = None
     assists: int | None = None
+    minutes: int | None = None
+    yellow_cards: int | None = None
+    red_cards: int | None = None
+    pass_accuracy: float | None = Field(
+        default=None, description="Completed-pass percentage, e.g. 85.9."
+    )
+    tackles: int | None = None
+    interceptions: int | None = None
+    progressive_carries: int | None = Field(
+        default=None,
+        description="Left unset by every current provider — none of them report "
+        "this metric, and it is never estimated from adjacent stats.",
+    )
+    progressive_passes: int | None = Field(default=None, description="See progressive_carries.")
+    as_of_date: str
+    source: str
+
+
+class TransferRecord(BaseModel):
+    """Normalized transfer/contract record returned by a :class:`TransferProvider`.
+
+    Every money/date field is optional and left ``None`` when a source
+    doesn't state it — never estimated or inferred, since a plausible-
+    looking fee or expiry date would be indistinguishable from a real one.
+    """
+
+    player: str
+    transfer_fee: str | None = None
+    wages: str | None = None
+    release_clause: str | None = None
+    contract_expiry: str | None = None
     as_of_date: str
     source: str
 

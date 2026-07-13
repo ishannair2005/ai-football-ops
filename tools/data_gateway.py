@@ -19,6 +19,10 @@ _COMPARABLE_FIELDS = ("position", "club", "age")
 class PlayerDataGateway:
     def __init__(self, providers: list[PlayerDataProvider]) -> None:
         self._providers = providers
+        #: See PlayerIdentityGateway.last_error — set when a live provider
+        #: errored on the most recent lookup rather than simply having no
+        #: record for the player.
+        self.last_error: str | None = None
 
     def fetch_player_evidence(self, name: str) -> list[Evidence]:
         """Query every provider for ``name`` and return evidence for the GM/agents.
@@ -26,11 +30,16 @@ class PlayerDataGateway:
         Queries all providers (not just the first hit) so disagreements
         between sources can be detected rather than masked by priority order.
         """
-        records = [
-            record
-            for provider in self._providers
-            if (record := provider.fetch_player(name)) is not None
-        ]
+        self.last_error = None
+        records: list[PlayerStatsRecord] = []
+        for provider in self._providers:
+            record = provider.fetch_player(name)
+            if record is not None:
+                records.append(record)
+            else:
+                error = getattr(provider, "last_error", None)
+                if error:
+                    self.last_error = error
         if not records:
             return []
 
@@ -43,11 +52,24 @@ class PlayerDataGateway:
     @staticmethod
     def _record_to_evidence(record: PlayerStatsRecord) -> Evidence:
         stats = f"{record.appearances or 0} apps, {record.goals or 0}g {record.assists or 0}a"
+        pass_accuracy = f"{record.pass_accuracy}%" if record.pass_accuracy is not None else None
+        extra_fields = (
+            ("minutes", record.minutes),
+            ("yellow cards", record.yellow_cards),
+            ("red cards", record.red_cards),
+            ("pass accuracy", pass_accuracy),
+            ("tackles", record.tackles),
+            ("interceptions", record.interceptions),
+            ("progressive carries", record.progressive_carries),
+            ("progressive passes", record.progressive_passes),
+        )
+        extra = ", ".join(f"{label} {value}" for label, value in extra_fields if value is not None)
         return Evidence(
             source=EvidenceSource.DATA_PROVIDER,
             description=(
                 f"{record.name}: {record.position} at {record.club or 'unknown club'}, "
-                f"age {record.age if record.age is not None else 'unknown'} ({stats})"
+                f"age {record.age if record.age is not None else 'unknown'} ({stats}"
+                f"{', ' + extra if extra else ''})"
             ),
             value=f"source={record.source}",
             as_of_date=record.as_of_date,

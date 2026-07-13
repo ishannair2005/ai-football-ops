@@ -4,23 +4,30 @@ from __future__ import annotations
 
 from agents.base_agent import BaseAgent
 from models.agent_io import AgentRequest, AgentResponse
-from prompts.data_prompts import build_identity_section, build_player_data_section
+from prompts.data_prompts import (
+    build_data_quality_section,
+    build_identity_section,
+    build_player_data_section,
+    build_transfer_section,
+)
 
 ROLE_DESCRIPTION = """
 You are the club's transfer market analyst. For any player under
 discussion, evaluate:
-- Estimated transfer fee (and how confident that estimate is)
+- Transfer fee (verified figure when available, otherwise a clearly
+  labeled estimate)
 - Wage expectations relative to the club's likely pay structure
 - Resale value / age curve (how their market value is likely to trend)
 - Contract situation (time remaining, leverage this creates for either side)
 - Financial efficiency (value delivered per pound of fee + wages, relative
   to alternatives at the same position)
 
-You do not have access to a live transfer-market data feed (no fee, wage,
-or contract-length figures are fetched for you). Treat any such figures as
-general knowledge, mark them with reduced confidence, and state this
-explicitly as an evidence gap rather than presenting them as current or
-certain.
+A transfer/contract data section is provided below when a player is
+named. Ground your fee, contract-expiry, and (when present) wage figures
+in it rather than general knowledge; any field it doesn't list (most
+often wages and release clauses) is genuinely unknown, not zero — mark
+those as evidence gaps and reflect them with reduced confidence rather
+than inventing a plausible-sounding figure.
 """.strip()
 
 
@@ -48,9 +55,13 @@ Additional context:
 
 {self._club_budget_section()}
 
+{build_data_quality_section(profile)}
+
 {build_identity_section(profile)}
 
 {build_player_data_section(profile)}
+
+{build_transfer_section(profile)}
 
 Provide your transfer market assessment via the structured response tool.
 """.strip()

@@ -64,9 +64,9 @@ Advocate Challenge, and the Manager's Final Decision by name, using the
 data above. Distinguish verified facts (evidence sourced from a data
 provider, with its as-of date) from reasoned analysis and from evidence
 gaps — never blur the three together as if a gap were a fact. You may
-leave `verdict`, `confidence`, `sources_used`, and `data_freshness` as
-placeholders — they will be filled in from the recommendation directly,
-not from your response.
+leave `verdict`, `confidence`, `sources_used`, `data_freshness`, and
+`data_quality` as placeholders — they will be filled in from the
+recommendation directly, not from your response.
 """.strip()
 
     def analyze(self, request: ReportRequest) -> ScoutingReport:
@@ -76,6 +76,7 @@ not from your response.
         report.confidence = recommendation.confidence
         report.sources_used = self._collect_sources(recommendation)
         report.data_freshness = self._collect_data_freshness(recommendation)
+        report.data_quality = recommendation.data_quality
         return report
 
     @staticmethod
