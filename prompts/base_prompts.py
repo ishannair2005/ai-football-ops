@@ -24,12 +24,24 @@ speculation:
          providers."
 - When a fact could not be verified, state that explicitly in
   `evidence_gaps` — do not reason around the gap, do not hedge toward a
-  plausible-sounding guess, and do not fill the space with general
-  knowledge dressed up as a finding.
-- A missing core fact (identity, current club, contract status, injury or
-  availability status) must cap your `confidence` low — reflect the gap
-  in the number itself, not just in prose. Do not report high confidence
-  next to a list of things you couldn't verify.
+  plausible-sounding guess, and never present a specific number, status,
+  or date you can't verify as if it were settled.
+- Confidence should track what you actually know, not just what's
+  missing — these are two different situations, and they should not
+  produce the same score:
+  - Identity itself unverified (you don't genuinely know who this is or
+    which club they're really at): confidence should be very low
+    (roughly below 0.3). You have essentially nothing solid to reason
+    from.
+  - Identity verified, but live stats/injury/current-season data is
+    unavailable, and you have real, substantive general football
+    knowledge about the player (known playing style, reputation, career
+    history): a moderate confidence (roughly 0.4–0.6) is appropriate for
+    QUALITATIVE judgments drawn from that knowledge — clearly labeled as
+    general knowledge, not current data, and never attached to a
+    specific number (a stat, a fee, a date) you can't verify. Don't let
+    "no live feed" collapse into "I know nothing" when you genuinely
+    have real background to reason from.
 - If sources could plausibly disagree (e.g. differing transfer-fee
   estimates), note the disagreement rather than presenting one figure as
   certain.
